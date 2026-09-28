@@ -1,25 +1,27 @@
 #!/usr/bin/env python3
-"""snapper-helper - privileged snapper/btrfs bridge for the Snapper plugin.
+"""snapper-helper - snapper bridge for the snapper Omarchy plugin.
 
-Runs as root via `pkexec <plugin-dir>/bin/snapper-helper <command>`. All output is a
+Talks to snapperd through the `snapper` CLI as the calling user, which needs
+ALLOW_USERS to include that user in each snapper config. All output is a
 single JSON document on stdout; failures exit non-zero with {"ok": false, ...}.
 
 Commands:
-  status                 List snapshots across snapper configs + quota/size info
-  create <description>   Create a number-cleanup snapshot in every config
-  delete <number>        Delete one snapshot (validated integer only)
-  cleanup                Run `snapper cleanup number` for every config
-  quota-enable           Enable btrfs quotas on / (needed for per-snapshot sizes)
+  status                   List snapshots across snapper configs with sizes
+  create <description>     Create a number-cleanup snapshot in every config
+  delete <config> <number> Delete one snapshot from one config
+  cleanup                  Run `snapper cleanup number` for every config
+  quota-enable             Enable btrfs quotas on / (root only, via pkexec)
 
 Never invoked with shell interpolation: the QML side always passes argv.
 """
 
 import json
 import os
-import re
 import shutil
 import subprocess
 import sys
+
+LIST_COLUMNS = "number,type,pre-number,date,user,cleanup,description,userdata,used-space"
 
 
 def fail(msg):
@@ -32,179 +34,87 @@ def run(cmd):
     return p.returncode, p.stdout, p.stderr
 
 
+def snapper(args):
+    rc, out, err = run(["snapper", *args])
+    if rc != 0:
+        fail("snapper %s failed: %s" % (" ".join(args), err.strip() or out.strip()))
+    return out
+
+
 def snapper_configs():
-    rc, out, err = run(["snapper", "--csvout", "list-configs"])
-    if rc != 0:
-        fail("snapper list-configs failed: %s" % (err.strip() or out.strip()))
-    configs = []
-    for line in out.splitlines()[1:]:
-        name = line.split(",")[0].strip()
-        if name:
-            configs.append(name)
-    return configs
-
-
-def parse_snapper_list(text, config):
-    """Parse `snapper list` table into dicts. Columns:
-    # | Type | Pre # | Date | User | Cleanup | Description | Userdata"""
-    snaps = []
-    header_seen = False
-    for line in text.splitlines():
-        raw_cells = line.split("|")
-        cells = [c.strip() for c in raw_cells]
-        if not header_seen:
-            if cells and cells[0] == "#":
-                header_seen = True
-            continue
-        if len(cells) < 7:
-            continue
-        try:
-            number = int(cells[0])
-        except ValueError:
-            continue
-        pre = cells[2]
-        if len(cells) > 8:
-            # A pipe inside the description adds extra cells; rejoin the raw
-            # (unstripped) middle cells so inner spacing is preserved.
-            description = "|".join(raw_cells[6:-1]).strip()
-            userdata = cells[-1]
-        else:
-            description = cells[6] if len(cells) > 6 else ""
-            userdata = cells[7] if len(cells) > 7 else ""
-        snaps.append({
-            "number": number,
-            "config": config,
-            "type": cells[1],
-            "pre_number": int(pre) if pre.isdigit() else None,
-            "date": cells[3],
-            "user": cells[4],
-            "cleanup": cells[5],
-            "description": description,
-            "userdata": userdata,
-        })
-    return snaps
-
-
-def subvolume_snapshot_numbers():
-    """Map snapshot number -> True using `btrfs subvolume list -q /`.
-
-    Snapshot subvolumes live at .../.snapshots/<N>/snapshot; the number is
-    taken from the path, not the qgroup id, so the mapping is exact."""
-    rc, out, err = run(["btrfs", "subvolume", "list", "-q", "/"])
-    numbers = {}
-    if rc != 0:
-        return numbers
-    for line in out.splitlines():
-        m = re.search(r"\.snapshots/(\d+)/snapshot", line)
-        if not m:
-            continue
-        q = re.search(r"qgroup\s+(\S+)", line)
-        numbers[int(m.group(1))] = q.group(1) if q else None
-    return numbers
-
-
-def quota_enabled():
-    rc, _, _ = run(["btrfs", "qgroup", "show", "/"])
-    return rc == 0
-
-
-def qgroup_exclusive():
-    """qgroup id (e.g. '0/42') -> exclusive bytes, from `btrfs qgroup show --raw /`."""
-    rc, out, _ = run(["btrfs", "qgroup", "show", "--raw", "/"])
-    excl = {}
-    if rc != 0:
-        return excl
-    for line in out.splitlines():
-        parts = line.split()
-        if len(parts) != 3 or not re.match(r"^\d+/\d+$", parts[0]):
-            continue
-        try:
-            excl[parts[0]] = int(parts[2])
-        except ValueError:
-            continue
-    return excl
+    doc = json.loads(snapper(["--jsonout", "list-configs"]))
+    return [c["config"] for c in doc.get("configs", [])]
 
 
 def cmd_status():
     configs = snapper_configs()
     snapshots = []
     for config in configs:
-        rc, out, err = run(["snapper", "-c", config, "list"])
-        if rc != 0:
-            fail("snapper -c %s list failed: %s" % (config, (err.strip() or out.strip())))
-        snapshots.extend(parse_snapper_list(out, config))
+        doc = json.loads(snapper(["--jsonout", "-c", config, "list", "--columns", LIST_COLUMNS]))
+        for s in doc.get(config, []):
+            # Snapshot 0 is snapper's stand-in for the live filesystem.
+            if s["number"] == 0:
+                continue
+            snapshots.append({
+                "number": s["number"],
+                "config": config,
+                "type": s["type"],
+                "pre_number": s.get("pre-number"),
+                "date": s.get("date", ""),
+                "user": s.get("user", ""),
+                "cleanup": s.get("cleanup", ""),
+                "description": s.get("description", ""),
+                "size": s.get("used-space"),
+            })
     snapshots.sort(key=lambda s: s["number"], reverse=True)
 
-    q_enabled = quota_enabled()
-    sizes = {}
-    if q_enabled:
-        qmap = subvolume_snapshot_numbers()
-        excl = qgroup_exclusive()
-        for num, qid in qmap.items():
-            if qid and qid in excl:
-                sizes[str(num)] = excl[qid]
-    total_exclusive = sum(sizes.values())
-
+    # snapper reports used-space only while btrfs quotas are on.
+    sizes = [s["size"] for s in snapshots if s["size"] is not None]
     du = shutil.disk_usage("/")
     print(json.dumps({
         "ok": True,
         "configs": configs,
         "snapshots": snapshots,
-        "quota_enabled": q_enabled,
-        "sizes": sizes,
-        "total_exclusive_bytes": total_exclusive,
+        "quota_enabled": bool(sizes),
+        "total_exclusive_bytes": sum(sizes),
         "fs": {"total": du.total, "used": du.used, "free": du.free},
     }))
 
 
 def cmd_create(args):
-    if not args:
+    if len(args) != 1:
         fail("create needs a description")
-    description = args[0]
     configs = snapper_configs()
     if not configs:
         fail("no snapper configs found")
     created = []
     for config in configs:
-        rc, out, err = run(["snapper", "-c", config, "create",
-                            "-c", "number", "--description", description,
-                            "--print-number"])
-        if rc != 0:
-            fail("snapper -c %s create failed: %s" % (config, (err.strip() or out.strip())))
-        try:
-            created.append({"config": config, "number": int(out.strip())})
-        except ValueError:
-            created.append({"config": config, "number": None})
+        out = snapper(["-c", config, "create", "-c", "number",
+                       "--description", args[0], "--print-number"])
+        created.append({"config": config, "number": int(out.strip() or 0) or None})
     print(json.dumps({"ok": True, "created": created}))
 
 
 def cmd_delete(args):
-    if len(args) != 1 or not args[0].isdigit():
-        fail("delete needs a single numeric snapshot id")
-    number = args[0]
-    configs = snapper_configs()
-    deleted = []
-    for config in configs:
-        rc, out, err = run(["snapper", "-c", config, "delete", number])
-        if rc == 0:
-            deleted.append(config)
-        # A snapshot number lives in exactly one config; other configs
-        # failing with "not found" is expected, not an error.
-    if not deleted:
-        fail("snapshot %s not found in any config" % number)
-    print(json.dumps({"ok": True, "deleted_from": deleted, "number": int(number)}))
+    if len(args) != 2 or not args[1].isdigit() or int(args[1]) == 0:
+        fail("delete needs a config name and a snapshot number")
+    config, number = args
+    if config not in snapper_configs():
+        fail("unknown snapper config: %s" % config)
+    snapper(["-c", config, "delete", number])
+    print(json.dumps({"ok": True, "config": config, "number": int(number)}))
 
 
 def cmd_cleanup():
     configs = snapper_configs()
     for config in configs:
-        rc, out, err = run(["snapper", "-c", config, "cleanup", "number"])
-        if rc != 0:
-            fail("snapper -c %s cleanup failed: %s" % (config, (err.strip() or out.strip())))
+        snapper(["-c", config, "cleanup", "number"])
     print(json.dumps({"ok": True, "configs": configs}))
 
 
 def cmd_quota_enable():
+    if os.geteuid() != 0:
+        fail("quota-enable must run as root")
     rc, out, err = run(["btrfs", "quota", "enable", "/"])
     if rc != 0:
         fail("btrfs quota enable failed: %s" % (err.strip() or out.strip()))

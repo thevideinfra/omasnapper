@@ -9,7 +9,7 @@ A bar widget + panel for [Omarchy 4](https://omarchy.org/) that makes your Btrfs
 - **Snapshot now** — one click, timestamped description, number-cleanup class so retention policies apply.
 - **Clean up** — runs snapper's number-based cleanup on the spot (same thing `omarchy-snapshot create` runs after every update).
 - **Delete** — two-step confirm, per snapshot.
-- **Restore** — two-step confirm, then opens a terminal running Omarchy's own `sudo limine-snapper-restore` (interactive, reboots when done, preserves `/home`).
+- **Restore…** — opens a terminal running Omarchy's own `sudo limine-snapper-restore`, where you pick the snapshot (interactive, preserves `/home`).
 - **Quota helper** — per-snapshot sizes need btrfs quotas; if they're off, the panel offers to enable them.
 
 Boot entries for snapshots appear automatically in the Limine boot menu via `limine-snapper-sync` — no action needed.
@@ -18,7 +18,13 @@ Boot entries for snapshots appear automatically in the Limine boot menu via `lim
 
 - Omarchy 4 (Quickshell "quattro" shell)
 - `snapper` + a btrfs root (standard on Omarchy installs)
-- `pkexec` (ships with Omarchy's polkit setup) — all privileged work goes through `bin/snapper-helper` via polkit, so you'll get one password prompt; polkit caches it for subsequent polls
+- Your user in the snapper config's `ALLOW_USERS`, so status, create, delete and cleanup run through snapperd without a password:
+
+  ```bash
+  sudo snapper -c root set-config ALLOW_USERS="$USER"
+  ```
+
+- `pkexec` for the one root-only action, enabling btrfs quotas
 
 ## Install
 
@@ -49,9 +55,10 @@ omarchy bar set videinfra.snapper warnThresholdGB --json 10
 
 ## How it works
 
-- `BarWidget.qml` polls `pkexec bin/snapper-helper status` on a timer (gated, cheap) and renders the pill. Clicking toggles `Panel.qml`.
-- `bin/snapper-helper` (python3, runs as root via pkexec) is the only privileged piece. It shells out to `snapper` and `btrfs` with fixed argv — never with interpolated shell strings — and prints one JSON document. Snapshot descriptions are rendered as plain text, never as markup.
-- Mutations (`create`, `delete`, `cleanup`, `quota-enable`) run through the same helper; each prompts via polkit at click time, which is the expected UX for a destructive action.
+- `BarWidget.qml` runs `bin/snapper-helper status` on a timer and renders the pill. Clicking toggles `Panel.qml`.
+- `bin/snapper-helper` (python3) runs as you and talks to snapperd through `snapper --jsonout`, with fixed argv — never interpolated shell strings — and prints one JSON document. Per-snapshot sizes come from snapper's `used-space` column, which snapper fills in only while btrfs quotas are on. Snapshot descriptions are rendered as plain text, never as markup.
+- Mutations (`create`, `delete <config> <number>`, `cleanup`) run through the same helper. Only `quota-enable` goes through `pkexec`.
+- The panel also answers IPC: `qs ipc -p "$OMARCHY_PATH/shell" call videinfra.snapper toggle`.
 - Restore deliberately does **not** run headless: it opens `foot` with `sudo limine-snapper-restore`, the same interactive tool `omarchy snapshot restore` uses.
 
 ## Remove
@@ -71,21 +78,10 @@ omarchy-restart-shell
 qs log -p "$OMARCHY_PATH/shell" --tail 100               # QML errors
 ```
 
-Test the helper's parsing without snapper by feeding it sample output:
+Run the helper tests (they use a stub `snapper` on `PATH`):
 
 ```bash
-python3 - <<'EOF'
-import importlib.util
-spec = importlib.util.spec_from_file_location("sg", "bin/snapper-helper")
-sg = importlib.util.module_from_spec(spec); spec.loader.exec_module(sg)
-sample = """ # | Type   | Pre # | Date                  | User | Cleanup | Description      | Userdata
----+--------+-------+-----------------------+------+---------+------------------+----------
-0  | single |       |                       | root |         | current          |
-42 | pre    |       | Mon 2026-09-28 14:00  | root | number  | omarchy update   | important=no
-"""
-for s in sg.parse_snapper_list(sample, "root"):
-    print(s["number"], s["type"], repr(s["description"]), repr(s["userdata"]))
-EOF
+python3 -m unittest discover -s tests
 ```
 
 ## Notes / limitations

@@ -57,7 +57,7 @@ BarWidget {
         }
     }
 
-    // ---- status polling (read-only; pkexec auth is cached by polkit) ----
+    // ---- status polling (unprivileged: snapper ALLOW_USERS covers this user) ----
     Process {
         id: statusProc
         stdout: StdioCollector {
@@ -87,7 +87,7 @@ BarWidget {
 
     function refreshStatus() {
         if (statusProc.running) return;
-        statusProc.command = ["pkexec", root.helperPath, "status"];
+        statusProc.command = [root.helperPath, "status"];
         statusProc.running = true;
     }
 
