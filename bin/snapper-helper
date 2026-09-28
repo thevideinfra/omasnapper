@@ -9,14 +9,16 @@ Commands:
   status                   List snapshots across snapper configs with sizes
   create <description>     Create a number-cleanup snapshot in every config
   delete <config> <number> Delete one snapshot from one config
-  cleanup                  Run `snapper cleanup number` for every config
+  restore <number>         Restore the root config's snapshot (root only, via pkexec)
   quota-enable             Enable btrfs quotas on / (root only, via pkexec)
 
 Never invoked with shell interpolation: the QML side always passes argv.
 """
 
+import datetime
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -46,8 +48,79 @@ def snapper_configs():
     return [c["config"] for c in doc.get("configs", [])]
 
 
+PACMAN_LOG = "/var/log/pacman.log"
+# omarchy-update runs pacman right after its snapshot; changes this soon
+# after a snapshot belong to that update.
+UPDATE_WINDOW = datetime.timedelta(minutes=15)
+PACMAN_LINE = re.compile(r"^\[([^\]]+)\] \[ALPM\] (upgraded|installed|removed) (\S+)(?: \((.*)\))?")
+# omarchy-snapshot labels its snapshot with `omarchy-version`, or "unknown".
+OMARCHY_VERSION = re.compile(r"^(\d+(?:\.\d+)+)(?:-\d+)?$|^unknown$")
+RESTORE_BACKUP = re.compile(r"^backup before restore #(\d+)$|^Before restoring #(\d+)")
+
+
+def parse_pacman_log(text):
+    """Package changes from pacman.log as (time, action, package, versions)."""
+    events = []
+    for line in text.splitlines():
+        m = PACMAN_LINE.match(line)
+        if not m:
+            continue
+        try:
+            when = datetime.datetime.strptime(m.group(1), "%Y-%m-%dT%H:%M:%S%z")
+        except ValueError:
+            continue
+        events.append((when, m.group(2), m.group(3), m.group(4) or ""))
+    return events
+
+
+def read_pacman_events():
+    try:
+        with open(PACMAN_LOG, errors="replace") as f:
+            return parse_pacman_log(f.read())
+    except OSError:
+        return []
+
+
+def short_version(version):
+    return re.sub(r"-\d+$", "", version.strip())
+
+
+def describe(snap, events):
+    """Who made a snapshot and why: {origin, title, detail}."""
+    description = snap.get("description") or ""
+    user = snap.get("user") or "root"
+
+    backup = RESTORE_BACKUP.match(description)
+    if backup:
+        return {"origin": "restore-backup", "title": "Safety copy before restore",
+                "detail": "Taken before restoring #%s" % (backup.group(1) or backup.group(2))}
+
+    if user == "root" and snap.get("cleanup") == "number" and OMARCHY_VERSION.match(description):
+        start = datetime.datetime.strptime(snap["date"], "%Y-%m-%d %H:%M:%S").astimezone()
+        changes = [e for e in events if start <= e[0] < start + UPDATE_WINDOW]
+        version = short_version(description)
+        for _, action, package, versions in changes:
+            if package == "omarchy" and action == "upgraded" and "->" in versions:
+                version += " → " + short_version(versions.split("->")[1])
+        count = len(changes)
+        if count == 0:
+            summary = "no changes"
+        else:
+            summary = "%d package%s" % (count, "" if count == 1 else "s")
+        return {"origin": "omarchy-update", "title": "Before Omarchy update",
+                "detail": version + " · " + summary}
+
+    if user != "root":
+        return {"origin": "manual", "title": description or "Manual snapshot",
+                "detail": "Made by " + user}
+
+    return {"origin": "other", "title": description or "(no description)",
+            "detail": "Made by " + user}
+
+
 def cmd_status():
     configs = snapper_configs()
+    events = read_pacman_events()
     snapshots = []
     for config in configs:
         doc = json.loads(snapper(["--jsonout", "-c", config, "list", "--columns", LIST_COLUMNS]))
@@ -66,6 +139,7 @@ def cmd_status():
                 "description": s.get("description", ""),
                 "size": s.get("used-space"),
             })
+            snapshots[-1].update(describe(snapshots[-1], events))
     snapshots.sort(key=lambda s: s["number"], reverse=True)
 
     # snapper reports used-space only while btrfs quotas are on.
@@ -105,11 +179,111 @@ def cmd_delete(args):
     print(json.dumps({"ok": True, "config": config, "number": int(number)}))
 
 
-def cmd_cleanup():
-    configs = snapper_configs()
-    for config in configs:
-        snapper(["-c", config, "cleanup", "number"])
-    print(json.dumps({"ok": True, "configs": configs}))
+RESTORE_TOOL = ["limine-snapper-restore"]
+ANSI = re.compile(r"\x1b\[[0-9;?]*[A-Za-z]")
+
+
+def drive_restore(command, number, backup_description, timeout=900):
+    """Run limine-snapper-restore in a pty and answer its prompts.
+
+    Outside a booted snapshot the tool asks, in order: which snapshot
+    ("Choice: "), and a description for the backup of the current root.
+    Answering the second starts the restore. Any other question means
+    something is off, so the driver cancels instead of guessing.
+    Returns {"ok": True} or {"ok": False, "error": ...}.
+    """
+    import pty
+    import select
+    import signal
+    import time
+
+    pid, fd = pty.fork()
+    if pid == 0:
+        try:
+            os.execvp(command[0], command)
+        finally:
+            os._exit(127)
+
+    output = ""     # everything read, ANSI stripped, for error messages
+    pending = ""    # text since the last answer, where the next prompt lands
+    picked = False
+    error = None
+    deadline = time.monotonic() + timeout
+
+    def send(text):
+        nonlocal pending
+        os.write(fd, (text + "\n").encode())
+        pending = ""
+
+    while True:
+        if time.monotonic() > deadline:
+            error = "restore timed out"
+            os.kill(pid, signal.SIGKILL)
+            break
+        ready, _, _ = select.select([fd], [], [], 0.5)
+        if not ready:
+            continue
+        try:
+            chunk = os.read(fd, 4096)
+        except OSError:
+            break  # pty closed: the tool exited
+        if not chunk:
+            break
+        text = ANSI.sub("", chunk.decode(errors="replace")).replace("\r", "")
+        output += text
+        pending += text
+        prompt = pending.rstrip(" ")
+
+        if prompt.endswith("Choice [r/l/c]:"):
+            # Booted into a snapshot: list them instead of restoring this one.
+            send("l")
+        elif prompt.endswith("Choice [s/r/c]:"):
+            error = "snapshot #%d failed file verification, nothing was restored" % number
+            send("c")
+        elif prompt.endswith("Choice:"):
+            if picked:
+                error = "snapshot #%d is not in the Limine boot menu, nothing was restored" % number
+                send("c")
+            else:
+                picked = True
+                send(str(number))
+        elif re.search(r"Description for backup subvolume [^\n]*:$", prompt):
+            send(backup_description)
+        elif prompt.endswith("[y/N]:"):
+            # The tool holds the terminal open after an error.
+            if error is None:
+                error = "restore failed"
+            send("y")
+        elif prompt.endswith("(must match config):"):
+            error = "Limine config has no entry for this OS, nothing was restored"
+            os.kill(pid, signal.SIGTERM)
+
+    _, status = os.waitpid(pid, 0)
+    os.close(fd)
+    code = os.waitstatus_to_exitcode(status)
+    tail = "\n".join(line for line in output.strip().splitlines()[-6:] if line.strip())
+
+    if error is None and "Aborted." in output:
+        error = "restore was cancelled"
+    if error is None and code != 0:
+        error = "restore failed"
+    if error is not None:
+        if error == "restore failed" and tail:
+            error += ": " + tail
+        return {"ok": False, "error": error}
+    return {"ok": True, "number": number}
+
+
+def cmd_restore(args):
+    if len(args) != 1 or not args[0].isdigit() or int(args[0]) == 0:
+        fail("restore needs a snapshot number")
+    if os.geteuid() != 0:
+        fail("restore must run as root")
+    number = int(args[0])
+    stamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
+    result = drive_restore(RESTORE_TOOL, number, "Before restoring #%d (%s)" % (number, stamp))
+    print(json.dumps(result))
+    sys.exit(0 if result["ok"] else 1)
 
 
 def cmd_quota_enable():
@@ -123,7 +297,7 @@ def cmd_quota_enable():
 
 def main(argv):
     if len(argv) < 2:
-        fail("usage: snapper-helper <status|create|delete|cleanup|quota-enable> [args]")
+        fail("usage: snapper-helper <status|create|delete|restore|quota-enable> [args]")
     cmd, rest = argv[1], argv[2:]
     if cmd == "status":
         cmd_status()
@@ -131,8 +305,8 @@ def main(argv):
         cmd_create(rest)
     elif cmd == "delete":
         cmd_delete(rest)
-    elif cmd == "cleanup":
-        cmd_cleanup()
+    elif cmd == "restore":
+        cmd_restore(rest)
     elif cmd == "quota-enable":
         cmd_quota_enable()
     else:

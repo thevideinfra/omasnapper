@@ -5,55 +5,68 @@
   "version": "0.1.0",
   "author": "thevideinfra",
   "license": "MIT",
-  "description": "See and manage Btrfs/Snapper snapshots from the Omarchy bar: per-snapshot disk usage, pruning, one-click create/delete, and guided system restore.",
+  "description": "See, take, delete and restore Btrfs snapshots from the Omarchy bar, with who made each one and why.",
   "kinds": [
     "bar-widget"
   ],
   "entryPoints": {
-    "barWidget": "BarWidget.qml"
+    "barWidget": "Panel.qml"
   },
   "barWidget": {
     "allowMultiple": false,
     "category": "System",
     "defaultSection": "right",
     "defaults": {
-      "confirmDelete": true,
+      "density": "normal",
+      "fontSize": "normal",
       "refreshIntervalSec": 300,
-      "showSizes": true,
       "warnThresholdGB": 5
     },
-    "description": "Btrfs snapshot disk usage and management.",
+    "description": "System snapshots: why each was made, one-click snapshot, restore and delete",
     "displayName": "snapper",
     "schema": [
       {
-        "defaultValue": 300,
+        "key": "density",
+        "type": "enum",
+        "label": "Density",
+        "options": [
+          "compact",
+          "normal",
+          "comfortable"
+        ],
+        "defaultValue": "normal",
+        "description": "How tightly the panel is laid out."
+      },
+      {
+        "key": "fontSize",
+        "type": "enum",
+        "label": "Font size",
+        "options": [
+          "small",
+          "normal",
+          "large"
+        ],
+        "defaultValue": "normal",
+        "description": "Text size, on top of the density's own scaling."
+      },
+      {
         "key": "refreshIntervalSec",
+        "type": "integer",
         "label": "Refresh interval (seconds)",
-        "max": 3600,
         "min": 60,
+        "max": 3600,
         "step": 60,
-        "type": "integer"
+        "defaultValue": 300
       },
       {
-        "defaultValue": true,
-        "key": "showSizes",
-        "label": "Show snapshot disk usage in the bar",
-        "type": "boolean"
-      },
-      {
-        "defaultValue": true,
-        "key": "confirmDelete",
-        "label": "Ask for confirmation before deleting a snapshot",
-        "type": "boolean"
-      },
-      {
-        "defaultValue": 5,
         "key": "warnThresholdGB",
-        "label": "Warn when snapshots use more than this (GB)",
-        "max": 100,
+        "type": "integer",
+        "label": "Warn when snapshots hold more than this (GB)",
         "min": 1,
+        "max": 100,
         "step": 1,
-        "type": "integer"
+        "defaultValue": 5,
+        "description": "Needs btrfs quotas."
       }
     ]
   }

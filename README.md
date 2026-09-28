@@ -1,30 +1,34 @@
 # snapper
 
-A bar widget + panel for [Omarchy 4](https://omarchy.org/) that makes your Btrfs/Snapper snapshots visible and manageable. Omarchy takes a snapshot before every update, but until now there was no desktop UI for them — snapshots silently eat disk until something breaks. This fixes that.
+A bar widget and panel for [Omarchy 4](https://omarchy.org/) that shows your Btrfs system snapshots, says why each one exists, and lets you take, delete and restore them without a terminal.
+
+Omarchy takes a snapshot before every update. Until now there was no desktop UI for them.
 
 ## What it does
 
-- **Bar pill** shows how much disk your snapshots exclusively use (e.g. `󰁯 2.3G`), with a `!` when it passes your warning threshold. Without btrfs quotas it shows the snapshot count instead.
-- **Panel** lists every snapshot across your snapper configs: number, type (single/pre/post), date, description, per-snapshot exclusive size.
-- **Snapshot now** — one click, timestamped description, number-cleanup class so retention policies apply.
-- **Clean up** — runs snapper's number-based cleanup on the spot (same thing `omarchy-snapshot create` runs after every update).
-- **Delete** — two-step confirm, per snapshot.
-- **Restore…** — opens a terminal running Omarchy's own `sudo limine-snapper-restore`, where you pick the snapshot (interactive, preserves `/home`).
-- **Quota helper** — per-snapshot sizes need btrfs quotas; if they're off, the panel offers to enable them.
+- **Bar pill** shows the snapshot count (`󰁯 4`). With btrfs quotas on, it shows the space snapshots hold instead, with a `!` past your warning threshold.
+- **Snapshot list** says who made each snapshot and why:
+  - *Before Omarchy update* — the Omarchy version at the time, and how many packages that update changed (read from `/var/log/pacman.log`), e.g. `4.0.4 → 4.0.5 · 37 packages`.
+  - *Manual snapshot* — taken from this panel, with the user who took it.
+  - *Safety copy before restore* — the system as it was before a restore.
+- **Snapshot now** — one click.
+- **Restore** — select a snapshot, confirm, enter your password. The restore runs in the background and the panel then offers a reboot. It rolls back the system subvolume only; `/home` is untouched, and the current system is kept as a safety copy.
+- **Delete** — select a snapshot and confirm.
+- **Settings** (gear) — density, font size, and enabling btrfs quotas for per-snapshot sizes.
 
-Boot entries for snapshots appear automatically in the Limine boot menu via `limine-snapper-sync` — no action needed.
+Snapshots also appear in the Limine boot menu through `limine-snapper-sync`.
 
 ## Requirements
 
 - Omarchy 4 (Quickshell "quattro" shell)
-- `snapper` + a btrfs root (standard on Omarchy installs)
-- Your user in the snapper config's `ALLOW_USERS`, so status, create, delete and cleanup run through snapperd without a password:
+- `snapper`, `limine-snapper-sync` and a btrfs root (standard on Omarchy installs)
+- Your user in the snapper config's `ALLOW_USERS`, so listing, creating and deleting snapshots needs no password:
 
   ```bash
   sudo snapper -c root set-config ALLOW_USERS="$USER"
   ```
 
-- `pkexec` for the one root-only action, enabling btrfs quotas
+- `pkexec` for the two root-only actions: restore and enabling quotas
 
 ## Install
 
@@ -32,34 +36,27 @@ Boot entries for snapshots appear automatically in the Limine boot menu via `lim
 omarchy plugin add https://github.com/thevideinfra/snapper.git --enable
 ```
 
-The widget lands in the right section of the bar. Move it with:
-
-```bash
-omarchy bar move videinfra.snapper --section right
-```
+For a local checkout, link it into `~/.config/omarchy/plugins/videinfra.snapper` and run `omarchy plugin enable videinfra.snapper`. Restart the shell after QML edits, since linked plugins do not hot reload.
 
 ## Configure
 
-Settings UI, or inline in `~/.config/omarchy/shell.json` on the widget entry:
+Use the gear in the panel, the settings UI, or inline in `~/.config/omarchy/shell.json`:
 
 | Key | Type | Default | What |
 |---|---|---|---|
+| `density` | enum | normal | compact, normal or comfortable |
+| `fontSize` | enum | normal | small, normal or large |
 | `refreshIntervalSec` | integer | 300 | How often the bar pill refreshes (60–3600) |
-| `showSizes` | boolean | true | Show exclusive disk usage in the pill (needs quotas) |
-| `confirmDelete` | boolean | true | Two-step confirmation before deleting |
-| `warnThresholdGB` | integer | 5 | Pill shows `!` past this much snapshot disk use |
+| `warnThresholdGB` | integer | 5 | Pill shows `!` past this much snapshot space (needs quotas) |
 
-```bash
-omarchy bar set videinfra.snapper warnThresholdGB --json 10
-```
+The panel also answers IPC: `qs ipc -p "$OMARCHY_PATH/shell" call videinfra.snapper toggle`.
 
 ## How it works
 
-- `BarWidget.qml` runs `bin/snapper-helper status` on a timer and renders the pill. Clicking toggles `Panel.qml`.
-- `bin/snapper-helper` (python3) runs as you and talks to snapperd through `snapper --jsonout`, with fixed argv — never interpolated shell strings — and prints one JSON document. Per-snapshot sizes come from snapper's `used-space` column, which snapper fills in only while btrfs quotas are on. Snapshot descriptions are rendered as plain text, never as markup.
-- Mutations (`create`, `delete <config> <number>`, `cleanup`) run through the same helper. Only `quota-enable` goes through `pkexec`.
-- The panel also answers IPC: `qs ipc -p "$OMARCHY_PATH/shell" call videinfra.snapper toggle`.
-- Restore deliberately does **not** run headless: it opens `foot` with `sudo limine-snapper-restore`, the same interactive tool `omarchy snapshot restore` uses.
+- `Panel.qml` is the bar widget and the panel. It runs `bin/snapper-helper` and renders its JSON.
+- `bin/snapper-helper` (python3) runs as you for `status`, `create` and `delete`, and talks to snapperd through `snapper --jsonout`. It always passes a fixed argv, never a shell string.
+- `restore` runs the helper as root through `pkexec`. The helper starts Omarchy's own `limine-snapper-restore` in a hidden pseudo-terminal and answers its two questions: which snapshot, and a description for the safety copy. If the tool asks anything else (a snapshot that fails file verification, a snapshot missing from the boot menu), the helper cancels, and nothing is restored.
+- Per-snapshot sizes come from snapper's `used-space` column, which snapper fills in only while btrfs quotas are on.
 
 ## Remove
 
@@ -67,26 +64,21 @@ omarchy bar set videinfra.snapper warnThresholdGB --json 10
 omarchy plugin remove videinfra.snapper
 ```
 
-Removes only the plugin. Snapshots, snapper configs, and quotas are untouched.
+This removes only the plugin. Snapshots, snapper configs and quotas stay as they are.
 
 ## Development
 
 ```bash
-omarchy plugin validate /path/to/snapper
-omarchy plugin add /path/to/snapper --enable   # local path also works
-omarchy-restart-shell
-qs log -p "$OMARCHY_PATH/shell" --tail 100               # QML errors
+npm test    # node tests for Model.js, python tests for bin/snapper-helper
+omarchy plugin validate .
+qs log -p "$OMARCHY_PATH/shell" --tail 100    # QML errors
 ```
 
-Run the helper tests (they use a stub `snapper` on `PATH`):
+The restore tests drive `tests/fake_limine_restore.py`, which asks the same prompts as the real tool, so they never touch the system.
 
-```bash
-python3 -m unittest discover -s tests
-```
+## Notes
 
-## Notes / limitations
-
-- Snapshots live on the same disk as the system. This is an undo button, not a backup.
-- Per-snapshot sizes require btrfs quotas (`btrfs quota enable /`); there's a small ongoing accounting cost, which is why it's opt-in via the panel button.
-- `timeline` snapshots aren't created by Omarchy's config (`TIMELINE_CREATE=no`); cleanup covers the `number` class only, matching `omarchy-snapshot`.
-- Plugin code is unsandboxed by design in Omarchy — only install plugins from sources you trust, including this one. Review `bin/snapper-helper` if you like; it's short.
+- Snapshots live on the same disk as the system. They are an undo button, not a backup.
+- Deleting a snapshot frees only the data that snapshot alone holds. That is often small, because most of it is shared with the running system. Btrfs also frees space in the background, so the free-space figure can lag.
+- Omarchy keeps its update snapshots to 5 (`NUMBER_LIMIT=5`) and prunes older ones after each update.
+- Plugin code is unsandboxed by design in Omarchy. Only install plugins you trust, including this one. `bin/snapper-helper` is short; read it before granting it root for a restore.
