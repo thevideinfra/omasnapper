@@ -1,0 +1,60 @@
+{
+  "schemaVersion": 1,
+  "id": "videinfra.snapper",
+  "name": "snapper",
+  "version": "0.1.0",
+  "author": "thevideinfra",
+  "license": "MIT",
+  "description": "See and manage Btrfs/Snapper snapshots from the Omarchy bar: per-snapshot disk usage, pruning, one-click create/delete, and guided system restore.",
+  "kinds": [
+    "bar-widget"
+  ],
+  "entryPoints": {
+    "barWidget": "BarWidget.qml"
+  },
+  "barWidget": {
+    "allowMultiple": false,
+    "category": "System",
+    "defaultSection": "right",
+    "defaults": {
+      "confirmDelete": true,
+      "refreshIntervalSec": 300,
+      "showSizes": true,
+      "warnThresholdGB": 5
+    },
+    "description": "Btrfs snapshot disk usage and management.",
+    "displayName": "snapper",
+    "schema": [
+      {
+        "defaultValue": 300,
+        "key": "refreshIntervalSec",
+        "label": "Refresh interval (seconds)",
+        "max": 3600,
+        "min": 60,
+        "step": 60,
+        "type": "integer"
+      },
+      {
+        "defaultValue": true,
+        "key": "showSizes",
+        "label": "Show snapshot disk usage in the bar",
+        "type": "boolean"
+      },
+      {
+        "defaultValue": true,
+        "key": "confirmDelete",
+        "label": "Ask for confirmation before deleting a snapshot",
+        "type": "boolean"
+      },
+      {
+        "defaultValue": 5,
+        "key": "warnThresholdGB",
+        "label": "Warn when snapshots use more than this (GB)",
+        "max": 100,
+        "min": 1,
+        "step": 1,
+        "type": "integer"
+      }
+    ]
+  }
+}
