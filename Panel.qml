@@ -31,6 +31,7 @@ Panel {
   readonly property real fontCaption: Math.max(9, Math.round(Style.font.caption * fontScale))
   readonly property real fontDisplay: Math.round(Style.font.display * fontScale)
   readonly property int refreshSec: Math.max(60, Number(setting("refreshIntervalSec", 300)))
+  readonly property bool showRetention: Model.settingBool(setting("showRetention", true), true)
   property bool settingsOpen: false
   // Dates follow the bar clock's 12- or 24-hour choice.
   readonly property string clockFmt: Model.clockFormat(bar ? bar.layoutConfig : null)
@@ -62,8 +63,29 @@ Panel {
   property var actionSnap: null
   property string errorText: ""
   property string doneText: ""
-  // Which confirm is up in place of the row actions: "restore", "delete" or none.
+  // Which confirm is up in place of the row actions: "restore", "delete",
+  // "browse" or none.
   property string confirmKind: ""
+  // Row whose description is being edited, as "config:number".
+  property string renaming: ""
+  // Files changed since a snapshot: which row asked, the first lines, the count.
+  property string filesKey: ""
+  property var files: []
+  property int filesTotal: 0
+
+  // Retention and schedule as saved in snapper, and the choices made in the
+  // panel but not applied yet (-1, null and "" mean unchanged).
+  readonly property var saved: snapData && snapData.settings ? snapData.settings
+    : ({ keep: 5, auto_delete: true, schedule: "off", browse: false })
+  property int draftKeep: -1
+  property var draftAuto: null
+  property string draftSchedule: ""
+  readonly property int keepChoice: draftKeep >= 0 ? draftKeep : saved.keep
+  readonly property bool autoChoice: draftAuto !== null ? draftAuto : saved.auto_delete
+  readonly property string scheduleChoice: draftSchedule !== "" ? draftSchedule : saved.schedule
+  readonly property bool retentionDirty: keepChoice !== saved.keep || autoChoice !== saved.auto_delete
+    || scheduleChoice !== saved.schedule
+  readonly property var retentionDeletes: Model.wouldDelete(snapshots, keepChoice, autoChoice)
   // Set once a restore has worked; the panel then offers the reboot.
   property int restoredNumber: 0
 
@@ -77,6 +99,11 @@ Panel {
         create: "Taking snapshot",
         delete: "Deleting #" + (actionSnap ? actionSnap.number : ""),
         restore: "Restoring #" + (actionSnap ? actionSnap.number : ""),
+        pin: "Saving",
+        rename: "Renaming",
+        files: "Comparing #" + (actionSnap ? actionSnap.number : "") + " with now",
+        "apply-settings": "Applying retention",
+        "allow-browse": "Allowing browsing",
         "quota-enable": "Enabling quotas"
       }
       return (doing[action] || "Working").toUpperCase() + "..."
@@ -106,11 +133,13 @@ Panel {
     } else {
       settingsOpen = false
       confirmKind = ""
+      renaming = ""
     }
   }
 
   function close() {
     if (confirmKind !== "") { confirmKind = ""; return }
+    if (renaming !== "") { renaming = ""; return }
     controller.hide()
   }
 
@@ -146,6 +175,39 @@ Panel {
     if (!snap) return
     if (kind === "delete") run("delete", snap, ["delete", snap.config, String(snap.number)], false)
     else if (kind === "restore") run("restore", snap, ["restore", String(snap.number)], true)
+    else if (kind === "browse") run("allow-browse", snap, ["allow-browse"], true)
+  }
+
+  function togglePin(snap) {
+    run("pin", snap, ["pin", snap.config, String(snap.number), snap.pinned ? "off" : "on"], false)
+  }
+
+  function rename(snap, text) {
+    var description = text.trim()
+    if (description === "" || description === snap.description) { renaming = ""; return }
+    run("rename", snap, ["rename", snap.config, String(snap.number), description], false)
+  }
+
+  function showFiles(snap) {
+    if (filesKey === keyOf(snap)) { filesKey = ""; return }
+    run("files", snap, ["files", snap.config, String(snap.number)], false)
+  }
+
+  // /.snapshots is root-only until snapper's SYNC_ACL grants ALLOW_USERS
+  // read access, so the first open asks for that.
+  function openFolder(snap) {
+    if (saved.browse) Quickshell.execDetached(["xdg-open", snap.path])
+    else confirmKind = "browse"
+  }
+
+  function applyRetention() {
+    run("apply-settings", null, ["apply-settings", String(keepChoice), autoChoice ? "yes" : "no", scheduleChoice], true)
+  }
+
+  function resetRetention() {
+    draftKeep = -1
+    draftAuto = null
+    draftSchedule = ""
   }
 
   function enableQuotas() {
@@ -167,6 +229,21 @@ Panel {
       restoredNumber = actionSnap.number
       selected = ""
     } else if (action === "quota-enable") doneText = "Quotas on"
+    else if (action === "pin") doneText = actionSnap.pinned ? "#" + actionSnap.number + " can be auto-deleted" : "Keeping #" + actionSnap.number
+    else if (action === "rename") renaming = ""
+    else if (action === "apply-settings") {
+      doneText = "Retention saved"
+      resetRetention()
+    } else if (action === "allow-browse") {
+      doneText = "Browsing allowed"
+      if (actionSnap) Quickshell.execDetached(["xdg-open", actionSnap.path])
+    } else if (action === "files") {
+      var doc = JSON.parse(stdout)
+      files = doc.files || []
+      filesTotal = doc.total || 0
+      filesKey = keyOf(actionSnap)
+      return
+    }
     refresh()
   }
 
@@ -430,9 +507,143 @@ Panel {
       onClicked: root.createSnapshot()
     }
 
+    RetentionView {
+      width: parent.width
+      visible: root.showRetention
+    }
+
     Caption {
       width: parent.width
       text: "Restore rolls back the system, not your home folder. The current system is saved as a safety copy first."
+    }
+  }
+
+  // How many snapshots to keep, whether older ones are deleted, and
+  // scheduled snapshots. Choices apply together, with one password.
+  component RetentionView: Column {
+    spacing: root.sp(10)
+
+    PanelSeparator { foreground: root.barForeground }
+    SectionHeader { text: "RETENTION" }
+
+    Item {
+      width: parent.width
+      implicitHeight: Math.max(keepLabel.implicitHeight, keepStepper.implicitHeight)
+      opacity: root.autoChoice ? 1.0 : 0.45
+
+      Text {
+        id: keepLabel
+        anchors.left: parent.left
+        anchors.verticalCenter: parent.verticalCenter
+        textFormat: Text.PlainText
+        text: "Keep the newest"
+        color: root.barForeground
+        font.family: Style.font.family
+        font.pixelSize: root.fontBody
+      }
+
+      Row {
+        id: keepStepper
+        anchors.right: parent.right
+        anchors.verticalCenter: parent.verticalCenter
+        spacing: root.sp(12)
+
+        ActionLink {
+          text: "−"
+          active: root.autoChoice && root.keepChoice > 1
+          onClicked: root.draftKeep = root.keepChoice - 1
+        }
+        Text {
+          textFormat: Text.PlainText
+          text: String(root.keepChoice)
+          color: Color.accent
+          font.family: Style.font.family
+          font.pixelSize: root.fontBody
+          font.bold: true
+          width: root.sp(24)
+          horizontalAlignment: Text.AlignHCenter
+        }
+        ActionLink {
+          text: "+"
+          active: root.autoChoice && root.keepChoice < 50
+          onClicked: root.draftKeep = root.keepChoice + 1
+        }
+      }
+    }
+
+    SettingSwitch {
+      width: parent.width
+      label: "Auto-delete older snapshots"
+      checked: root.autoChoice
+      onToggled: root.draftAuto = !root.autoChoice
+    }
+
+    Text {
+      textFormat: Text.PlainText
+      text: "Scheduled snapshots"
+      color: root.barForeground
+      font.family: Style.font.family
+      font.pixelSize: root.fontBody
+    }
+
+    ChoiceChips {
+      width: parent.width
+      choices: [
+        { value: "off", label: "Off" },
+        { value: "daily", label: "Daily" },
+        { value: "hourly", label: "Hourly" }
+      ]
+      selected: root.scheduleChoice
+      onPicked: function(value) { root.draftSchedule = value }
+    }
+
+    Caption {
+      width: parent.width
+      text: root.scheduleChoice === "hourly"
+        ? "One an hour, kept 12 hours, plus one a day kept 7 days. Pinned and update snapshots are not counted."
+        : (root.scheduleChoice === "daily"
+          ? "One a day, kept 7 days. Pinned and update snapshots are not counted."
+          : "Only update, manual and restore snapshots.")
+    }
+
+    Column {
+      width: parent.width
+      visible: root.retentionDirty
+      spacing: root.sp(8)
+
+      Text {
+        width: parent.width
+        wrapMode: Text.WordWrap
+        textFormat: Text.PlainText
+        text: root.retentionDeletes.length > 0
+          ? "Applying deletes " + root.retentionDeletes.map(function(n) { return "#" + n }).join(", ") + " now."
+          : "Nothing is deleted now."
+        color: root.retentionDeletes.length > 0 ? (root.bar ? root.bar.urgent : Color.urgent) : root.barForeground
+        font.family: Style.font.family
+        font.pixelSize: root.fontSmall
+      }
+
+      Row {
+        spacing: root.sp(16)
+
+        ActionLink {
+          text: root.retentionDeletes.length > 0 ? "Apply and delete " + root.retentionDeletes.length : "Apply"
+          strong: true
+          danger: root.retentionDeletes.length > 0
+          active: !root.busy
+          onClicked: root.applyRetention()
+        }
+        ActionLink {
+          text: "Reset"
+          active: !root.busy
+          onClicked: root.resetRetention()
+        }
+      }
+
+      Caption {
+        width: parent.width
+        text: "Needs your password. The boot menu grows to fit, so every kept snapshot stays restorable."
+      }
     }
   }
 
@@ -487,6 +698,33 @@ Panel {
     }
 
     PanelSeparator { foreground: root.barForeground }
+    SectionHeader { text: "SHOW" }
+
+    SettingSwitch {
+      width: parent.width
+      label: "Retention section"
+      checked: root.showRetention
+      onToggled: root.setSetting("showRetention", !root.showRetention)
+    }
+
+    PanelSeparator { foreground: root.barForeground }
+    SectionHeader { text: "SNAPSHOT FOLDERS" }
+
+    Caption {
+      width: parent.width
+      text: root.saved.browse
+        ? "Your user can read snapshot folders. Open one from its row with Folder."
+        : "Snapshot folders under /.snapshots are root-only. Allowing browsing lets your user read them."
+    }
+
+    ActionLink {
+      visible: !root.saved.browse
+      text: "󰉋  Allow browsing"
+      active: !root.busy
+      onClicked: root.run("allow-browse", null, ["allow-browse"], true)
+    }
+
+    PanelSeparator { foreground: root.barForeground }
     SectionHeader { text: "SNAPSHOT SIZES" }
 
     Caption {
@@ -526,6 +764,7 @@ Panel {
     id: row
     property var snap: ({})
     readonly property bool isSelected: root.selected === root.keyOf(snap)
+    readonly property bool isRenaming: root.renaming === root.keyOf(snap)
     readonly property bool isRestoring: root.busy && root.action === "restore"
       && root.actionSnap && root.keyOf(root.actionSnap) === root.keyOf(snap)
 
@@ -590,6 +829,7 @@ Panel {
 
           Text {
             width: parent.width
+            visible: !row.isRenaming
             textFormat: Text.PlainText
             text: row.snap.title || ""
             color: root.barForeground
@@ -597,6 +837,21 @@ Panel {
             font.pixelSize: root.fontBody
             font.bold: row.isSelected
             elide: Text.ElideRight
+          }
+
+          TextField {
+            id: renameField
+            width: parent.width
+            visible: row.isRenaming
+            foreground: root.barForeground
+            font.family: Style.font.family
+            font.pixelSize: root.fontBody
+            verticalPadding: root.sp(3)
+            onAccepted: root.rename(row.snap, text)
+            onVisibleChanged: if (visible) {
+              text = row.snap.description || ""
+              forceActiveFocus()
+            }
           }
 
           Text {
@@ -629,7 +884,7 @@ Panel {
           Text {
             anchors.right: parent.right
             textFormat: Text.PlainText
-            text: "#" + row.snap.number
+            text: (row.snap.pinned ? "󰐃 " : "") + "#" + row.snap.number
               + (row.snap.size !== null && row.snap.size !== undefined ? " · " + Model.fmtBytes(row.snap.size) : "")
             color: root.barForeground
             opacity: 0.45
@@ -685,6 +940,52 @@ Panel {
         }
       }
 
+      // Files that differ between this snapshot and now.
+      Column {
+        visible: root.filesKey === root.keyOf(row.snap)
+        x: root.sp(30)
+        width: parent.width - x
+        spacing: root.sp(2)
+
+        Text {
+          width: parent.width
+          textFormat: Text.PlainText
+          text: root.filesTotal === 0 ? "No files changed since this snapshot."
+            : root.filesTotal + (root.filesTotal === 1 ? " file differs" : " files differ") + " from now:"
+          color: root.barForeground
+          opacity: 0.55
+          font.family: Style.font.family
+          font.pixelSize: root.fontCaption
+          font.bold: true
+        }
+
+        Repeater {
+          model: root.filesKey === root.keyOf(row.snap) ? root.files.slice(0, 30) : []
+
+          Text {
+            required property var modelData
+            width: parent.width
+            textFormat: Text.PlainText
+            text: Model.fileLine(modelData)
+            color: root.barForeground
+            opacity: 0.8
+            font.family: Style.font.family
+            font.pixelSize: root.fontCaption
+            elide: Text.ElideMiddle
+          }
+        }
+
+        Text {
+          visible: root.filesTotal > 30
+          textFormat: Text.PlainText
+          text: "and " + (root.filesTotal - 30) + " more"
+          color: root.barForeground
+          opacity: 0.55
+          font.family: Style.font.family
+          font.pixelSize: root.fontCaption
+        }
+      }
+
       // Actions, or the confirm that replaces them.
       Item {
         width: parent.width
@@ -704,10 +1005,11 @@ Panel {
           font.pixelSize: root.fontSmall
         }
 
-        Row {
+        Flow {
           id: actionRow
           visible: !row.isRestoring && root.confirmKind === ""
           x: root.sp(30)
+          width: parent.width - x
           spacing: root.sp(16)
 
           ActionLink {
@@ -721,6 +1023,26 @@ Panel {
             danger: true
             active: !root.busy
             onClicked: root.confirmKind = "delete"
+          }
+          ActionLink {
+            text: row.snap.pinned ? "󰐄  Unpin" : "󰐃  Pin"
+            active: !root.busy
+            onClicked: root.togglePin(row.snap)
+          }
+          ActionLink {
+            text: "󰏫  Rename"
+            active: !root.busy
+            onClicked: root.renaming = row.isRenaming ? "" : root.keyOf(row.snap)
+          }
+          ActionLink {
+            text: "󰈔  Files"
+            active: !root.busy
+            onClicked: root.showFiles(row.snap)
+          }
+          ActionLink {
+            text: "󰉋  Folder"
+            active: !root.busy
+            onClicked: root.openFolder(row.snap)
           }
         }
 
@@ -737,7 +1059,9 @@ Panel {
             textFormat: Text.PlainText
             text: root.confirmKind === "delete"
               ? "Delete snapshot #" + row.snap.number + "? This cannot be undone."
-              : "Roll the system back to #" + row.snap.number + "? Your password is needed, then a reboot."
+              : (root.confirmKind === "browse"
+                ? "Snapshot folders are root-only. Let your user read them? Needs your password once."
+                : "Roll the system back to #" + row.snap.number + "? Your password is needed, then a reboot.")
             color: root.barForeground
             font.family: Style.font.family
             font.pixelSize: root.fontSmall
@@ -747,7 +1071,8 @@ Panel {
             spacing: root.sp(16)
 
             ActionLink {
-              text: root.confirmKind === "delete" ? "󰆴  Delete" : "󰁯  Restore"
+              text: root.confirmKind === "delete" ? "󰆴  Delete"
+                : (root.confirmKind === "browse" ? "󰉋  Allow and open" : "󰁯  Restore")
               strong: true
               danger: root.confirmKind === "delete"
               onClicked: root.confirmed()
@@ -825,6 +1150,73 @@ Panel {
           cursorShape: Qt.PointingHandCursor
           onClicked: chips.picked(parent.modelData.value)
         }
+      }
+    }
+  }
+
+  // A labelled on/off switch row; the whole row takes the click.
+  component SettingSwitch: Item {
+    id: settingRow
+    property string label: ""
+    property bool checked: false
+    signal toggled()
+
+    implicitHeight: Math.max(settingLabel.implicitHeight, settingToggle.implicitHeight)
+
+    Text {
+      id: settingLabel
+      anchors.left: parent.left
+      anchors.right: settingToggle.left
+      anchors.rightMargin: root.sp(8)
+      anchors.verticalCenter: parent.verticalCenter
+      textFormat: Text.PlainText
+      text: settingRow.label
+      color: root.barForeground
+      font.family: Style.font.family
+      font.pixelSize: root.fontBody
+      elide: Text.ElideRight
+    }
+
+    AccentSwitch {
+      id: settingToggle
+      anchors.right: parent.right
+      anchors.verticalCenter: parent.verticalCenter
+      checked: settingRow.checked
+    }
+
+    MouseArea {
+      anchors.fill: parent
+      cursorShape: Qt.PointingHandCursor
+      onClicked: settingRow.toggled()
+    }
+  }
+
+  // On/off switch in the theme accent: accent track and knob when on, a dim
+  // neutral track when off. Presentation only; its row owns the click.
+  component AccentSwitch: Item {
+    id: sw
+    property bool checked: false
+
+    implicitWidth: root.sp(34)
+    implicitHeight: root.sp(18)
+
+    Rectangle {
+      anchors.fill: parent
+      radius: height / 2
+      color: sw.checked ? Util.alpha(Color.accent, 0.3) : Util.alpha(root.barForeground, 0.1)
+      border.width: 1
+      border.color: sw.checked ? Color.accent : Util.alpha(root.barForeground, 0.25)
+      Behavior on color { ColorAnimation { duration: 120 } }
+
+      Rectangle {
+        width: parent.height - root.sp(6)
+        height: width
+        radius: width / 2
+        anchors.verticalCenter: parent.verticalCenter
+        x: sw.checked ? parent.width - width - root.sp(3) : root.sp(3)
+        color: sw.checked ? Color.accent : Qt.darker(root.barForeground, 1.4)
+        Behavior on x { NumberAnimation { duration: 120 } }
+        Behavior on color { ColorAnimation { duration: 120 } }
       }
     }
   }

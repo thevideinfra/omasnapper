@@ -69,7 +69,25 @@ function originIcon(origin) {
   if (origin === "omarchy-update") return "󰚰"   // nf-md-update
   if (origin === "manual") return "󰄄"           // nf-md-camera
   if (origin === "restore-backup") return "󰁯"   // nf-md-backup_restore
+  if (origin === "scheduled") return "󰃰"        // nf-md-calendar_clock
   return "󰋊"                                     // nf-md-harddisk
+}
+
+// Snapshot numbers snapper's number cleanup would delete with this keep
+// count. It only counts snapshots in the "number" cleanup class, so pinned
+// ones (no class) and scheduled ones ("timeline") are never included.
+function wouldDelete(snapshots, keep, autoDelete) {
+  if (!autoDelete) return []
+  var counted = (snapshots || []).filter(function(s) { return s.cleanup === "number" })
+    .map(function(s) { return s.number })
+    .sort(function(a, b) { return b - a })
+  return counted.slice(keep)
+}
+
+// One file from `omasnapper-helper files`, as a list line.
+function fileLine(file) {
+  var mark = file.change === "added" ? "+" : (file.change === "removed" ? "−" : "~")
+  return mark + " " + file.path
 }
 
 // Spacing multiplier for the density chosen in settings. Same scales as
@@ -85,6 +103,13 @@ function fontSizeScale(name) {
   if (name === "small") return 0.85
   if (name === "large") return 1.07
   return 0.95
+}
+
+// shell.json values may arrive as real booleans or as "true"/"false" strings.
+function settingBool(value, fallback) {
+  if (value === true || value === "true") return true
+  if (value === false || value === "false") return false
+  return fallback
 }
 
 // Error text for a failed helper run. pkexec exits 126 when the password
@@ -105,6 +130,9 @@ if (typeof module !== "undefined") {
     shortDate: shortDate,
     clockFormat: clockFormat,
     changeLine: changeLine,
+    wouldDelete: wouldDelete,
+    fileLine: fileLine,
+    settingBool: settingBool,
     originIcon: originIcon,
     densityScale: densityScale,
     fontSizeScale: fontSizeScale,

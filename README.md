@@ -14,7 +14,14 @@ Omarchy takes a snapshot before every update. Until now there was no desktop UI 
 - **Snapshot now** — one click.
 - **Restore** — select a snapshot, confirm, enter your password. The restore runs in the background and the panel then offers a reboot. It rolls back the system subvolume only; `/home` is untouched, and the current system is kept as a safety copy.
 - **Delete** — select a snapshot and confirm.
-- **Settings** (gear) — density, font size, and enabling btrfs quotas for per-snapshot sizes.
+- **Pin** — keep a snapshot out of auto-delete (clears its snapper cleanup class). Pinned rows show 󰐃.
+- **Rename** — edit a snapshot's description in place; Enter saves.
+- **Files** — list the files that differ between the snapshot and now (`snapper status N..0`).
+- **Folder** — open the snapshot's read-only folder, e.g. `/.snapshots/9/snapshot`. The first time, it asks to let your user read `/.snapshots` (snapper's `SYNC_ACL`).
+- **Retention** — how many snapshots to keep, whether older ones are deleted automatically, and scheduled snapshots (off, daily or hourly). Before you apply, the panel names every snapshot the change deletes. Applying takes your password, writes the snapper config, prunes right away, and turns `snapper-timeline.timer` on or off. It also raises the Limine boot menu's `MAX_SNAPSHOT_ENTRIES` in `/etc/limine-entry-tool.d/zz-omasnapper.conf` so every kept snapshot stays restorable. The section can be hidden in settings.
+- **Settings** (gear) — density, font size, show or hide retention, allow browsing snapshot folders, and enabling btrfs quotas for per-snapshot sizes.
+
+There is no cleanup button: snapper's hourly `snapper-cleanup.timer` and Omarchy's updater already prune to the retention limit, and applying a lower limit prunes at once.
 
 Snapshots also appear in the Limine boot menu through `limine-snapper-sync`.
 
@@ -28,7 +35,7 @@ Snapshots also appear in the Limine boot menu through `limine-snapper-sync`.
   sudo snapper -c root set-config ALLOW_USERS="$USER"
   ```
 
-- `pkexec` for the two root-only actions: restore and enabling quotas
+- `pkexec` for the root-only actions: restore, applying retention, allowing browsing and enabling quotas
 
 ## Install
 
@@ -81,4 +88,5 @@ The restore tests drive `tests/fake_limine_restore.py`, which asks the same prom
 - Snapshots live on the same disk as the system. They are an undo button, not a backup.
 - Deleting a snapshot frees only the data that snapshot alone holds. That is often small, because most of it is shared with the running system. Btrfs also frees space in the background, so the free-space figure can lag.
 - Omarchy keeps its update snapshots to 5 (`NUMBER_LIMIT=5`) and prunes older ones after each update.
+- Omarchy's snapper setup (`install/config/snapper.sh`) rewrites the snapper config from its template. If it runs again, it resets retention and drops `ALLOW_USERS`; the panel then says which command restores access.
 - Plugin code is unsandboxed by design in Omarchy. Only install plugins you trust, including this one. `bin/omasnapper-helper` is short; read it before granting it root for a restore.

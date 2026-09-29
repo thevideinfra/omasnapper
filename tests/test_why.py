@@ -88,6 +88,12 @@ class WhyTest(unittest.TestCase):
         self.assertEqual(w["title"], "before kernel swap")
         self.assertEqual(w["detail"], "Made by root")
 
+    def test_scheduled_snapshot(self):
+        w = self.why(snap("2026-09-25 22:00:00", "timeline", cleanup="timeline"))
+        self.assertEqual(w["origin"], "scheduled")
+        self.assertEqual(w["title"], "Scheduled snapshot")
+        self.assertEqual(w["detail"], "Kept by the snapshot schedule")
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -20,7 +20,8 @@
       "density": "normal",
       "fontSize": "normal",
       "refreshIntervalSec": 300,
-      "warnThresholdGB": 5
+      "warnThresholdGB": 5,
+      "showRetention": true
     },
     "description": "System snapshots: why each was made, one-click snapshot, restore and delete",
     "displayName": "omasnapper",
@@ -48,6 +49,12 @@
         ],
         "defaultValue": "normal",
         "description": "Text size, on top of the density's own scaling."
+      },
+      {
+        "key": "showRetention",
+        "type": "boolean",
+        "label": "Show the retention section",
+        "defaultValue": true
       },
       {
         "key": "refreshIntervalSec",

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""omasnapper-helper - snapper bridge for the snapper Omarchy plugin.
+"""omasnapper-helper - snapper bridge for the omasnapper Omarchy plugin.
 
 Talks to snapperd through the `snapper` CLI as the calling user, which needs
 ALLOW_USERS to include that user in each snapper config. All output is a
@@ -9,7 +9,14 @@ Commands:
   status                   List snapshots across snapper configs with sizes
   create <description>     Create a number-cleanup snapshot in every config
   delete <config> <number> Delete one snapshot from one config
+  pin <config> <number> on|off     Keep a snapshot out of, or back in, auto-delete
+  rename <config> <number> <text>  Set a snapshot's description
+  files <config> <number>  List files that differ between a snapshot and now
   restore <number>         Restore the root config's snapshot (root only, via pkexec)
+  apply-settings <keep> <auto-delete yes|no> <off|daily|hourly>
+                           Retention and scheduled snapshots for every config
+                           (root only, via pkexec)
+  allow-browse             Let ALLOW_USERS read /.snapshots (root only, via pkexec)
   quota-enable             Enable btrfs quotas on / (root only, via pkexec)
 
 Never invoked with shell interpolation: the QML side always passes argv.
@@ -38,14 +45,23 @@ def run(cmd):
 
 def snapper(args):
     rc, out, err = run(["snapper", *args])
+    if rc != 0 and "No permissions" in (err + out):
+        # Omarchy's snapper setup rewrites the config from its template,
+        # which drops ALLOW_USERS.
+        fail("snapper refused access. Run: sudo snapper -c root set-config ALLOW_USERS=\"$USER\"")
     if rc != 0:
         fail("snapper %s failed: %s" % (" ".join(args), err.strip() or out.strip()))
     return out
 
 
-def snapper_configs():
+def snapper_subvolumes():
+    """Config name -> the subvolume it snapshots."""
     doc = json.loads(snapper(["--jsonout", "list-configs"]))
-    return [c["config"] for c in doc.get("configs", [])]
+    return {c["config"]: c.get("subvolume", "/") for c in doc.get("configs", [])}
+
+
+def snapper_configs():
+    return list(snapper_subvolumes())
 
 
 PACMAN_LOG = "/var/log/pacman.log"
@@ -99,6 +115,10 @@ def describe(snap, events):
                 "detail": "Taken before restoring #%s" % (backup.group(1) or backup.group(2)),
                 "changes": []}
 
+    if snap.get("cleanup") == "timeline":
+        return {"origin": "scheduled", "title": "Scheduled snapshot",
+                "detail": "Kept by the snapshot schedule", "changes": []}
+
     if user == "root" and snap.get("cleanup") == "number" and OMARCHY_VERSION.match(description):
         start = datetime.datetime.strptime(snap["date"], "%Y-%m-%d %H:%M:%S").astimezone()
         changes = [e for e in events if start <= e[0] < start + UPDATE_WINDOW]
@@ -130,7 +150,8 @@ def describe(snap, events):
 
 
 def cmd_status():
-    configs = snapper_configs()
+    subvolumes = snapper_subvolumes()
+    configs = list(subvolumes)
     events = read_pacman_events()
     snapshots = []
     for config in configs:
@@ -149,6 +170,8 @@ def cmd_status():
                 "cleanup": s.get("cleanup", ""),
                 "description": s.get("description", ""),
                 "size": s.get("used-space"),
+                "pinned": s.get("cleanup", "") == "",
+                "path": os.path.join(subvolumes[config], ".snapshots", str(s["number"]), "snapshot"),
             })
             snapshots[-1].update(describe(snapshots[-1], events))
     snapshots.sort(key=lambda s: s["number"], reverse=True)
@@ -156,14 +179,69 @@ def cmd_status():
     # snapper reports used-space only while btrfs quotas are on.
     sizes = [s["size"] for s in snapshots if s["size"] is not None]
     du = shutil.disk_usage("/")
+    settings = read_settings(configs[0]) if configs else None
     print(json.dumps({
         "ok": True,
         "configs": configs,
+        "settings": settings,
         "snapshots": snapshots,
         "quota_enabled": bool(sizes),
         "total_exclusive_bytes": sum(sizes),
         "fs": {"total": du.total, "used": du.used, "free": du.free},
     }))
+
+
+def read_settings(config):
+    """Retention and schedule as the panel shows them, from one config."""
+    values = json.loads(snapper(["--jsonout", "-c", config, "get-config"]))
+    try:
+        keep = int(values.get("NUMBER_LIMIT", "5").split("-")[-1])
+    except ValueError:
+        keep = 5
+    schedule = "off"
+    if values.get("TIMELINE_CREATE") == "yes":
+        schedule = "hourly" if values.get("TIMELINE_LIMIT_HOURLY", "0") not in ("0", "") else "daily"
+    return {
+        "keep": keep,
+        "auto_delete": values.get("NUMBER_CLEANUP") == "yes",
+        "schedule": schedule,
+        "browse": values.get("SYNC_ACL") == "yes",
+    }
+
+
+SCHEDULES = {
+    # schedule: (hourly kept, daily kept)
+    "off": (0, 0),
+    "daily": (0, 7),
+    "hourly": (12, 7),
+}
+
+
+def settings_plan(keep, auto_delete, schedule):
+    """snapper config values, boot menu size and timer state for a choice."""
+    if not 1 <= keep <= 50:
+        raise ValueError("keep must be between 1 and 50")
+    if schedule not in SCHEDULES:
+        raise ValueError("schedule must be off, daily or hourly")
+    hourly, daily = SCHEDULES[schedule]
+    config = {
+        "NUMBER_CLEANUP": "yes" if auto_delete else "no",
+        "NUMBER_LIMIT": str(keep),
+        "NUMBER_LIMIT_IMPORTANT": str(keep),
+        "TIMELINE_CREATE": "yes" if schedule != "off" else "no",
+        "TIMELINE_CLEANUP": "yes",
+        "TIMELINE_LIMIT_HOURLY": str(hourly),
+        "TIMELINE_LIMIT_DAILY": str(daily),
+        "TIMELINE_LIMIT_WEEKLY": "0",
+        "TIMELINE_LIMIT_MONTHLY": "0",
+        "TIMELINE_LIMIT_QUARTERLY": "0",
+        "TIMELINE_LIMIT_YEARLY": "0",
+    }
+    # Limine lists at most MAX_SNAPSHOT_ENTRIES snapshots, and only listed
+    # ones can be restored. One spare slot covers the moment between a new
+    # snapshot and its cleanup, as in Omarchy's own 6 for NUMBER_LIMIT=5.
+    max_entries = str(keep + hourly + daily + 1) if auto_delete else "auto"
+    return {"config": config, "max_entries": max_entries, "timer": schedule != "off"}
 
 
 def cmd_create(args):
@@ -192,6 +270,53 @@ def cmd_delete(args):
 
 RESTORE_TOOL = ["limine-snapper-restore"]
 ANSI = re.compile(r"\x1b\[[0-9;?]*[A-Za-z]")
+
+
+def valid_snapshot(config, number):
+    if not number.isdigit() or int(number) == 0:
+        fail("snapshot number must be a positive integer")
+    if config not in snapper_configs():
+        fail("unknown snapper config: %s" % config)
+
+
+def cmd_pin(args):
+    if len(args) != 3 or args[2] not in ("on", "off"):
+        fail("pin needs a config, a snapshot number and on or off")
+    config, number, state = args
+    valid_snapshot(config, number)
+    snapper(["-c", config, "modify", "--cleanup-algorithm", "" if state == "on" else "number", number])
+    print(json.dumps({"ok": True}))
+
+
+def cmd_rename(args):
+    if len(args) != 3:
+        fail("rename needs a config, a snapshot number and a description")
+    config, number, description = args
+    valid_snapshot(config, number)
+    snapper(["-c", config, "modify", "--description", description, number])
+    print(json.dumps({"ok": True}))
+
+
+FILE_CHANGES = {"+": "added", "-": "removed"}
+FILES_SHOWN = 500
+
+
+def cmd_files(args):
+    if len(args) != 2:
+        fail("files needs a config and a snapshot number")
+    config, number = args
+    valid_snapshot(config, number)
+    out = snapper(["-c", config, "status", number + "..0"])
+    files = []
+    total = 0
+    for line in out.splitlines():
+        # "c..... /path": the first column says what happened to the file.
+        if len(line) < 8 or line[6] != " ":
+            continue
+        total += 1
+        if len(files) < FILES_SHOWN:
+            files.append({"change": FILE_CHANGES.get(line[0], "changed"), "path": line[7:]})
+    print(json.dumps({"ok": True, "files": files, "total": total}))
 
 
 def drive_restore(command, number, backup_description, timeout=900):
@@ -297,6 +422,43 @@ def cmd_restore(args):
     sys.exit(0 if result["ok"] else 1)
 
 
+LIMINE_DROPIN = "/etc/limine-entry-tool.d/zz-omasnapper.conf"
+
+
+def cmd_apply_settings(args):
+    if len(args) != 3 or not args[0].isdigit() or args[1] not in ("yes", "no"):
+        fail("apply-settings needs <keep> <yes|no> <off|daily|hourly>")
+    if os.geteuid() != 0:
+        fail("apply-settings must run as root")
+    try:
+        plan = settings_plan(int(args[0]), args[1] == "yes", args[2])
+    except ValueError as e:
+        fail(str(e))
+    configs = snapper_configs()
+    for config in configs:
+        snapper(["-c", config, "set-config"] + ["%s=%s" % kv for kv in plan["config"].items()])
+    os.makedirs(os.path.dirname(LIMINE_DROPIN), exist_ok=True)
+    with open(LIMINE_DROPIN, "w") as f:
+        f.write("# Written by the omasnapper plugin so the Limine boot menu, and so\n"
+                "# restore, covers every snapshot snapper keeps.\n"
+                "MAX_SNAPSHOT_ENTRIES=%s\n" % plan["max_entries"])
+    run(["systemctl", "enable" if plan["timer"] else "disable", "--now", "snapper-timeline.timer"])
+    for config in configs:
+        run(["snapper", "-c", config, "cleanup", "number"])
+        run(["snapper", "-c", config, "cleanup", "timeline"])
+    # Rebuild the boot menu's snapshot entries for the new limits.
+    run(["limine-snapper-sync"])
+    print(json.dumps({"ok": True}))
+
+
+def cmd_allow_browse():
+    if os.geteuid() != 0:
+        fail("allow-browse must run as root")
+    for config in snapper_configs():
+        snapper(["-c", config, "set-config", "SYNC_ACL=yes"])
+    print(json.dumps({"ok": True}))
+
+
 def cmd_quota_enable():
     if os.geteuid() != 0:
         fail("quota-enable must run as root")
@@ -308,7 +470,7 @@ def cmd_quota_enable():
 
 def main(argv):
     if len(argv) < 2:
-        fail("usage: omasnapper-helper <status|create|delete|restore|quota-enable> [args]")
+        fail("usage: omasnapper-helper <status|create|delete|pin|rename|files|restore|apply-settings|allow-browse|quota-enable> [args]")
     cmd, rest = argv[1], argv[2:]
     if cmd == "status":
         cmd_status()
@@ -316,8 +478,18 @@ def main(argv):
         cmd_create(rest)
     elif cmd == "delete":
         cmd_delete(rest)
+    elif cmd == "pin":
+        cmd_pin(rest)
+    elif cmd == "rename":
+        cmd_rename(rest)
+    elif cmd == "files":
+        cmd_files(rest)
     elif cmd == "restore":
         cmd_restore(rest)
+    elif cmd == "apply-settings":
+        cmd_apply_settings(rest)
+    elif cmd == "allow-browse":
+        cmd_allow_browse()
     elif cmd == "quota-enable":
         cmd_quota_enable()
     else:

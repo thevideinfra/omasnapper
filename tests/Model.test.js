@@ -64,3 +64,38 @@ test("changeLine shows one package change without pkgrel", () => {
   assert.equal(M.changeLine({ action: "installed", package: "foo", from: "", to: "1.0-1" }), "+ foo 1.0")
   assert.equal(M.changeLine({ action: "removed", package: "bar", from: "2.0-1", to: "" }), "− bar 2.0")
 })
+
+test("originIcon has a clock for scheduled snapshots", () => {
+  assert.equal(M.originIcon("scheduled"), "󰃰")
+})
+
+const snaps = [
+  { number: 9, cleanup: "number" }, { number: 8, cleanup: "number" },
+  { number: 7, cleanup: "" }, { number: 6, cleanup: "number" },
+  { number: 5, cleanup: "timeline" }, { number: 4, cleanup: "number" }
+]
+
+test("wouldDelete lists auto-deleted snapshots past the keep count, oldest last", () => {
+  assert.deepEqual(M.wouldDelete(snaps, 2, true), [6, 4])
+  assert.deepEqual(M.wouldDelete(snaps, 4, true), [])
+})
+
+test("wouldDelete spares pinned and scheduled snapshots", () => {
+  assert.deepEqual(M.wouldDelete(snaps, 1, true), [8, 6, 4])
+})
+
+test("wouldDelete is empty when auto-delete is off", () => {
+  assert.deepEqual(M.wouldDelete(snaps, 1, false), [])
+})
+
+test("fileLine marks added, removed and changed files", () => {
+  assert.equal(M.fileLine({ change: "added", path: "/a" }), "+ /a")
+  assert.equal(M.fileLine({ change: "removed", path: "/b" }), "− /b")
+  assert.equal(M.fileLine({ change: "changed", path: "/c" }), "~ /c")
+})
+
+test("settingBool accepts booleans and strings", () => {
+  assert.equal(M.settingBool("false", true), false)
+  assert.equal(M.settingBool(true, false), true)
+  assert.equal(M.settingBool(undefined, true), true)
+})
