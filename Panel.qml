@@ -32,6 +32,10 @@ Panel {
   readonly property real fontDisplay: Math.round(Style.font.display * fontScale)
   readonly property int refreshSec: Math.max(60, Number(setting("refreshIntervalSec", 300)))
   readonly property bool showRetention: Model.settingBool(setting("showRetention", true), true)
+  readonly property bool askName: Model.settingBool(setting("askName", true), true)
+  // True while the name field for a new snapshot is up.
+  property bool naming: false
+  signal namingStarted()
   property bool settingsOpen: false
   // Dates follow the bar clock's 12- or 24-hour choice.
   readonly property string clockFmt: Model.clockFormat(bar ? bar.layoutConfig : null)
@@ -134,12 +138,14 @@ Panel {
       settingsOpen = false
       confirmKind = ""
       renaming = ""
+      naming = false
     }
   }
 
   function close() {
     if (confirmKind !== "") { confirmKind = ""; return }
     if (renaming !== "") { renaming = ""; return }
+    if (naming) { naming = false; return }
     controller.hide()
   }
 
@@ -165,9 +171,19 @@ Panel {
     runProc.running = true
   }
 
+  // With askName on, the first click asks for a name and the field's Enter
+  // or Take snapshot creates it.
   function createSnapshot() {
-    run("create", null, ["create", "Manual snapshot"], false)
+    if (askName && !naming) {
+      naming = true
+      namingStarted()
+      return
+    }
+    run("create", null, ["create", Model.snapshotName(draftName)], false)
+    naming = false
   }
+
+  property string draftName: ""
 
   function confirmed() {
     var kind = confirmKind
@@ -501,10 +517,57 @@ Panel {
     PanelSeparator { foreground: root.barForeground }
 
     ActionLink {
+      visible: !root.naming
       text: "󰄄  Snapshot now"
       strong: true
       active: !root.busy
       onClicked: root.createSnapshot()
+    }
+
+    Column {
+      width: parent.width
+      visible: root.naming
+      spacing: root.sp(8)
+
+      TextField {
+        id: nameField
+        width: parent.width
+        placeholderText: "Name, e.g. before kernel swap"
+        foreground: root.barForeground
+        font.family: Style.font.family
+        font.pixelSize: root.fontBody
+        verticalPadding: root.sp(5)
+        onTextChanged: root.draftName = text
+        onAccepted: root.createSnapshot()
+
+        Connections {
+          target: root
+          function onNamingStarted() {
+            nameField.text = ""
+            nameField.forceActiveFocus()
+          }
+        }
+      }
+
+      Row {
+        spacing: root.sp(16)
+
+        ActionLink {
+          text: "󰄄  Take snapshot"
+          strong: true
+          active: !root.busy
+          onClicked: root.createSnapshot()
+        }
+        ActionLink {
+          text: "Cancel"
+          onClicked: root.naming = false
+        }
+      }
+
+      Caption {
+        width: parent.width
+        text: "Blank uses \"Manual snapshot\"."
+      }
     }
 
     RetentionView {
@@ -705,6 +768,13 @@ Panel {
       label: "Retention section"
       checked: root.showRetention
       onToggled: root.setSetting("showRetention", !root.showRetention)
+    }
+
+    SettingSwitch {
+      width: parent.width
+      label: "Name snapshots before taking them"
+      checked: root.askName
+      onToggled: root.setSetting("askName", !root.askName)
     }
 
     PanelSeparator { foreground: root.barForeground }

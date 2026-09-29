@@ -11,7 +11,7 @@ Omarchy takes a snapshot before every update. Until now there was no desktop UI 
   - *Before Omarchy update* — the Omarchy version at the time and what that update changed, read from `/var/log/pacman.log`, e.g. `4.0.4 → 4.0.5 · 30 updated, 2 added`. Select the snapshot to see each package; that list is what restoring it undoes.
   - *Manual snapshot* — taken from this panel, with the user who took it.
   - *Safety copy before restore* — the system as it was before a restore.
-- **Snapshot now** — one click.
+- **Snapshot now** — asks for a name first (blank uses "Manual snapshot"), or takes the snapshot in one click when "Name snapshots before taking them" is off in settings.
 - **Restore** — select a snapshot, confirm, enter your password. The restore runs in the background and the panel then offers a reboot. It rolls back the system subvolume only; `/home` is untouched, and the current system is kept as a safety copy.
 - **Delete** — select a snapshot and confirm.
 - **Pin** — keep a snapshot out of auto-delete (clears its snapper cleanup class). Pinned rows show 󰐃.

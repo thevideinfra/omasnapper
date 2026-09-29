@@ -105,6 +105,13 @@ function fontSizeScale(name) {
   return 0.95
 }
 
+// Description for a snapshot taken from the panel: the typed name, or
+// "Manual snapshot" when none was given.
+function snapshotName(text) {
+  var name = String(text || "").trim()
+  return name === "" ? "Manual snapshot" : name
+}
+
 // shell.json values may arrive as real booleans or as "true"/"false" strings.
 function settingBool(value, fallback) {
   if (value === true || value === "true") return true
@@ -133,6 +140,7 @@ if (typeof module !== "undefined") {
     wouldDelete: wouldDelete,
     fileLine: fileLine,
     settingBool: settingBool,
+    snapshotName: snapshotName,
     originIcon: originIcon,
     densityScale: densityScale,
     fontSizeScale: fontSizeScale,

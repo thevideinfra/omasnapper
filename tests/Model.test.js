@@ -99,3 +99,9 @@ test("settingBool accepts booleans and strings", () => {
   assert.equal(M.settingBool(true, false), true)
   assert.equal(M.settingBool(undefined, true), true)
 })
+
+test("snapshotName trims the typed name and falls back when blank", () => {
+  assert.equal(M.snapshotName("  before kernel swap "), "before kernel swap")
+  assert.equal(M.snapshotName("   "), "Manual snapshot")
+  assert.equal(M.snapshotName(undefined), "Manual snapshot")
+})

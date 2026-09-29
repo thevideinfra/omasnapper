@@ -21,7 +21,8 @@
       "fontSize": "normal",
       "refreshIntervalSec": 300,
       "warnThresholdGB": 5,
-      "showRetention": true
+      "showRetention": true,
+      "askName": true
     },
     "description": "System snapshots: why each was made, one-click snapshot, restore and delete",
     "displayName": "omasnapper",
@@ -55,6 +56,13 @@
         "type": "boolean",
         "label": "Show the retention section",
         "defaultValue": true
+      },
+      {
+        "key": "askName",
+        "type": "boolean",
+        "label": "Name snapshots before taking them",
+        "defaultValue": true,
+        "description": "Snapshot now asks for a name first. Blank uses \"Manual snapshot\"."
       },
       {
         "key": "refreshIntervalSec",
