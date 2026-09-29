@@ -5,17 +5,17 @@ import qs.Commons
 import qs.Ui
 import "Model.js" as Model
 
-// Bar widget and panel for videinfra.snapper, styled after dotsync,
+// Bar widget and panel for videinfra.omasnapper, styled after dotsync,
 // omaudiopanel and tandem: an accent header with a gear, compact sections,
 // and a settings view whose choices save as soon as they are picked. The
-// snapper work itself is done by bin/snapper-helper.
+// snapper work itself is done by bin/omasnapper-helper.
 Panel {
   id: root
-  moduleName: "videinfra.snapper"
-  ipcTarget: "videinfra.snapper"
+  moduleName: "videinfra.omasnapper"
+  ipcTarget: "videinfra.omasnapper"
 
   readonly property string helperBin: decodeURIComponent(
-    String(Qt.resolvedUrl("bin/snapper-helper")).replace(/^file:\/\//, ""))
+    String(Qt.resolvedUrl("bin/omasnapper-helper")).replace(/^file:\/\//, ""))
 
   // ---- Display settings (shell.json, set from the gear view) ----
   readonly property string density: String(setting("density", "normal"))
@@ -32,17 +32,19 @@ Panel {
   readonly property real fontDisplay: Math.round(Style.font.display * fontScale)
   readonly property int refreshSec: Math.max(60, Number(setting("refreshIntervalSec", 300)))
   property bool settingsOpen: false
+  // Dates follow the bar clock's 12- or 24-hour choice.
+  readonly property string clockFmt: Model.clockFormat(bar ? bar.layoutConfig : null)
 
   function sp(px) {
     return Style.space(px * densityScale)
   }
 
   function setSetting(key, value) {
-    Quickshell.execDetached(["omarchy", "bar", "set", "videinfra.snapper", key, JSON.stringify(value), "--json"])
+    Quickshell.execDetached(["omarchy", "bar", "set", "videinfra.omasnapper", key, JSON.stringify(value), "--json"])
   }
 
   // ---- Snapshots ----
-  // Latest `snapper-helper status` document, or null until the first read.
+  // Latest `omasnapper-helper status` document, or null until the first read.
   property var snapData: null
   readonly property var snapshots: snapData ? (snapData.snapshots || []) : []
   // Selected row, as "config:number".
@@ -215,7 +217,7 @@ Panel {
     anchors.fill: parent
     bar: root.bar
     text: root.pillText
-    tooltipText: "Snapper · system snapshots"
+    tooltipText: "Omasnapper · system snapshots"
     onPressed: function(b) { if (b === Qt.LeftButton) root.toggle() }
   }
 
@@ -276,7 +278,7 @@ Panel {
 
               Text {
                 width: parent.width
-                text: "Snapper"
+                text: "Omasnapper"
                 color: root.barForeground
                 font.family: Style.font.family
                 font.pixelSize: root.fontTitle
@@ -617,7 +619,7 @@ Panel {
           Text {
             anchors.right: parent.right
             textFormat: Text.PlainText
-            text: Model.shortDate(row.snap.date)
+            text: Model.shortDate(row.snap.date, root.clockFmt)
             color: root.barForeground
             opacity: 0.75
             font.family: Style.font.family
@@ -634,6 +636,52 @@ Panel {
             font.family: Style.font.family
             font.pixelSize: root.fontCaption
           }
+        }
+      }
+
+      // What the update behind this snapshot changed, which is what a
+      // restore undoes. Long lists stop at ten lines.
+      Column {
+        visible: row.isSelected && (row.snap.changes || []).length > 0
+        x: root.sp(30)
+        width: parent.width - x
+        spacing: root.sp(2)
+
+        Text {
+          width: parent.width
+          textFormat: Text.PlainText
+          text: "That update changed:"
+          color: root.barForeground
+          opacity: 0.55
+          font.family: Style.font.family
+          font.pixelSize: root.fontCaption
+          font.bold: true
+        }
+
+        Repeater {
+          model: (row.snap.changes || []).slice(0, 10)
+
+          Text {
+            required property var modelData
+            width: parent.width
+            textFormat: Text.PlainText
+            text: Model.changeLine(modelData)
+            color: root.barForeground
+            opacity: 0.8
+            font.family: Style.font.family
+            font.pixelSize: root.fontCaption
+            elide: Text.ElideRight
+          }
+        }
+
+        Text {
+          visible: (row.snap.changes || []).length > 10
+          textFormat: Text.PlainText
+          text: "and " + ((row.snap.changes || []).length - 10) + " more"
+          color: root.barForeground
+          opacity: 0.55
+          font.family: Style.font.family
+          font.pixelSize: root.fontCaption
         }
       }
 

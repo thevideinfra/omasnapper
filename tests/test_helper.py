@@ -1,4 +1,4 @@
-"""Tests for bin/snapper-helper, run against a stub `snapper` on PATH.
+"""Tests for bin/omasnapper-helper, run against a stub `snapper` on PATH.
 
 Run: python3 -m unittest discover -s tests
 """
@@ -10,7 +10,7 @@ import tempfile
 import textwrap
 import unittest
 
-HELPER = os.path.join(os.path.dirname(__file__), "..", "bin", "snapper-helper")
+HELPER = os.path.join(os.path.dirname(__file__), "..", "bin", "omasnapper-helper")
 
 LIST_CONFIGS = {"configs": [{"config": "root", "subvolume": "/"}]}
 

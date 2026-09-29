@@ -1,4 +1,4 @@
-"""Tests for the "why was this snapshot made" text in bin/snapper-helper."""
+"""Tests for the "why was this snapshot made" text in bin/omasnapper-helper."""
 
 import os
 import time
@@ -49,21 +49,32 @@ class WhyTest(unittest.TestCase):
         w = self.why(snap("2026-09-21 18:11:11"))
         self.assertEqual(w["origin"], "omarchy-update")
         self.assertEqual(w["title"], "Before Omarchy update")
-        self.assertEqual(w["detail"], "4.0.4 → 4.0.5 · 4 packages")
+        self.assertEqual(w["detail"], "4.0.4 → 4.0.5 · 2 updated, 1 added, 1 removed")
+
+    def test_omarchy_update_lists_each_package_change(self):
+        w = self.why(snap("2026-09-21 18:11:11"))
+        self.assertEqual(w["changes"], [
+            {"action": "upgraded", "package": "mesa", "from": "26.1.0-1", "to": "26.1.1-1"},
+            {"action": "upgraded", "package": "omarchy", "from": "4.0.4-1", "to": "4.0.5-1"},
+            {"action": "installed", "package": "foo", "from": "", "to": "1.0-1"},
+            {"action": "removed", "package": "bar", "from": "2.0-1", "to": ""},
+        ])
 
     def test_omarchy_update_counts_only_packages_from_that_update(self):
         w = self.why(snap("2026-09-24 18:11:11"))
-        self.assertEqual(w["detail"], "4.0.4 · 1 package")
+        self.assertEqual(w["detail"], "4.0.4 · 1 updated")
 
     def test_omarchy_update_with_no_changes(self):
         w = self.why(snap("2026-09-25 22:44:02"))
         self.assertEqual(w["detail"], "4.0.4 · no changes")
+        self.assertEqual(w["changes"], [])
 
     def test_manual_snapshot_names_its_maker(self):
         w = self.why(snap("2026-09-25 22:44:02", "Manual snapshot", user="ks", cleanup="number"))
         self.assertEqual(w["origin"], "manual")
         self.assertEqual(w["title"], "Manual snapshot")
         self.assertEqual(w["detail"], "Made by ks")
+        self.assertEqual(w["changes"], [])
 
     def test_restore_safety_copy(self):
         w = self.why(snap("2026-09-25 22:44:02", "backup before restore #6", cleanup=""))

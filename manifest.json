@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
-  "id": "videinfra.snapper",
-  "name": "snapper",
+  "id": "videinfra.omasnapper",
+  "name": "omasnapper",
   "version": "0.1.0",
   "author": "thevideinfra",
   "license": "MIT",
@@ -23,7 +23,7 @@
       "warnThresholdGB": 5
     },
     "description": "System snapshots: why each was made, one-click snapshot, restore and delete",
-    "displayName": "snapper",
+    "displayName": "omasnapper",
     "schema": [
       {
         "key": "density",

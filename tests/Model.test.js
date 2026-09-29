@@ -37,5 +37,30 @@ test("density and font scales match dotsync", () => {
 test("helperError explains a dismissed password prompt", () => {
   assert.equal(M.helperError("", 126), "Password prompt was dismissed.")
   assert.equal(M.helperError('{"ok": false, "error": "boom"}', 1), "boom")
-  assert.equal(M.helperError("garbage", 1), "snapper-helper failed (exit 1).")
+  assert.equal(M.helperError("garbage", 1), "omasnapper-helper failed (exit 1).")
+})
+
+test("shortDate follows a 12-hour bar clock", () => {
+  assert.equal(M.shortDate("2026-09-25 22:44:02", "ddd d MMM h:mm AP"), "Sep 25, 10:44 PM")
+  assert.equal(M.shortDate("2026-09-18 00:23:37", "h:mm ap"), "Sep 18, 12:23 am")
+  assert.equal(M.shortDate("2026-09-18 12:05:00", "hh:mm AP"), "Sep 18, 12:05 PM")
+})
+
+test("shortDate stays 24-hour for a 24-hour or missing bar clock", () => {
+  assert.equal(M.shortDate("2026-09-25 22:44:02", "dddd HH:mm"), "Sep 25, 22:44")
+  assert.equal(M.shortDate("2026-09-25 09:04:02", ""), "Sep 25, 09:04")
+})
+
+test("clockFormat finds the omarchy.clock entry in any bar section", () => {
+  const layout = { left: [], center: [{ id: "omarchy.menu" }, { id: "omarchy.clock", format: "ddd d MMM h:mm AP" }], right: [] }
+  assert.equal(M.clockFormat(layout), "ddd d MMM h:mm AP")
+  assert.equal(M.clockFormat({ left: [{ id: "omarchy.clock" }] }), "dddd HH:mm")
+  assert.equal(M.clockFormat({}), "")
+  assert.equal(M.clockFormat(null), "")
+})
+
+test("changeLine shows one package change without pkgrel", () => {
+  assert.equal(M.changeLine({ action: "upgraded", package: "mesa", from: "26.1.0-1", to: "26.1.1-2" }), "mesa 26.1.0 → 26.1.1")
+  assert.equal(M.changeLine({ action: "installed", package: "foo", from: "", to: "1.0-1" }), "+ foo 1.0")
+  assert.equal(M.changeLine({ action: "removed", package: "bar", from: "2.0-1", to: "" }), "− bar 2.0")
 })

@@ -1,4 +1,4 @@
-// Helpers for the videinfra.snapper panel. Pure functions, testable via node.
+// Helpers for the videinfra.omasnapper panel. Pure functions, testable via node.
 
 function fmtBytes(bytes) {
   var b = Number(bytes || 0)
@@ -22,14 +22,49 @@ function statusLine(count, freeBytes) {
 
 var MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
 
-// "2026-09-25 22:44:02" (snapper's local time) to "Sep 25, 22:44".
-function shortDate(date) {
+// "2026-09-25 22:44:02" (snapper's local time) to "Sep 25, 22:44", or to
+// "Sep 25, 10:44 PM" when the bar clock's Qt format uses a 12-hour hour (h
+// or hh) with an AM/PM marker; the marker keeps the clock's case.
+function shortDate(date, clockFmt) {
   var m = /^(\d{4})-(\d{2})-(\d{2}) (\d{2}):(\d{2})/.exec(String(date || ""))
   if (!m) return String(date || "")
-  return MONTHS[Number(m[2]) - 1] + " " + Number(m[3]) + ", " + m[4] + ":" + m[5]
+  var day = MONTHS[Number(m[2]) - 1] + " " + Number(m[3]) + ", "
+  var fmt = String(clockFmt || "")
+  var marker = /AP|A/.exec(fmt) ? "AM" : (/ap|a/.exec(fmt) ? "am" : "")
+  if (marker === "" || !/(^|[^h])h/.test(fmt)) return day + m[4] + ":" + m[5]
+  var hour = Number(m[4])
+  var suffix = hour < 12 ? marker : (marker === "AM" ? "PM" : "pm")
+  return day + (hour % 12 === 0 ? 12 : hour % 12) + ":" + m[5] + " " + suffix
 }
 
-// Row glyph for who made the snapshot (bin/snapper-helper's `origin`).
+// The Qt time format of the omarchy.clock bar widget, from the bar's
+// layoutConfig, or "" when the bar has no clock. A clock entry without its
+// own format uses the widget's default.
+function clockFormat(layout) {
+  if (!layout) return ""
+  var sections = ["left", "center", "right"]
+  for (var i = 0; i < sections.length; i++) {
+    var entries = layout[sections[i]] || []
+    for (var j = 0; j < entries.length; j++) {
+      if (entries[j] && entries[j].id === "omarchy.clock")
+        return String(entries[j].format || "dddd HH:mm")
+    }
+  }
+  return ""
+}
+
+function dropPkgrel(version) {
+  return String(version || "").replace(/-\d+(\.\d+)?$/, "")
+}
+
+// One package change from bin/omasnapper-helper, as a list line.
+function changeLine(change) {
+  if (change.action === "installed") return "+ " + change.package + " " + dropPkgrel(change.to)
+  if (change.action === "removed") return "− " + change.package + " " + dropPkgrel(change.from)
+  return change.package + " " + dropPkgrel(change.from) + " → " + dropPkgrel(change.to)
+}
+
+// Row glyph for who made the snapshot (bin/omasnapper-helper's `origin`).
 function originIcon(origin) {
   if (origin === "omarchy-update") return "󰚰"   // nf-md-update
   if (origin === "manual") return "󰄄"           // nf-md-camera
@@ -60,7 +95,7 @@ function helperError(stdout, code) {
     var doc = JSON.parse(String(stdout || ""))
     if (doc && doc.error) return String(doc.error)
   } catch (e) {}
-  return "snapper-helper failed (exit " + code + ")."
+  return "omasnapper-helper failed (exit " + code + ")."
 }
 
 if (typeof module !== "undefined") {
@@ -68,6 +103,8 @@ if (typeof module !== "undefined") {
     fmtBytes: fmtBytes,
     statusLine: statusLine,
     shortDate: shortDate,
+    clockFormat: clockFormat,
+    changeLine: changeLine,
     originIcon: originIcon,
     densityScale: densityScale,
     fontSizeScale: fontSizeScale,

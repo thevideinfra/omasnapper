@@ -1,4 +1,4 @@
-"""Tests for the restore driver in bin/snapper-helper.
+"""Tests for the restore driver in bin/omasnapper-helper.
 
 The driver answers limine-snapper-restore's prompts in a pty. These tests
 run it against tests/fake_limine_restore.py, which asks the same prompts.

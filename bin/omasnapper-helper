@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""snapper-helper - snapper bridge for the snapper Omarchy plugin.
+"""omasnapper-helper - snapper bridge for the snapper Omarchy plugin.
 
 Talks to snapperd through the `snapper` CLI as the calling user, which needs
 ALLOW_USERS to include that user in each snapper config. All output is a
@@ -86,36 +86,47 @@ def short_version(version):
 
 
 def describe(snap, events):
-    """Who made a snapshot and why: {origin, title, detail}."""
+    """Who made a snapshot and why: {origin, title, detail, changes}.
+
+    For an Omarchy update snapshot, changes lists what that update did to
+    each package, which is what restoring the snapshot undoes."""
     description = snap.get("description") or ""
     user = snap.get("user") or "root"
 
     backup = RESTORE_BACKUP.match(description)
     if backup:
         return {"origin": "restore-backup", "title": "Safety copy before restore",
-                "detail": "Taken before restoring #%s" % (backup.group(1) or backup.group(2))}
+                "detail": "Taken before restoring #%s" % (backup.group(1) or backup.group(2)),
+                "changes": []}
 
     if user == "root" and snap.get("cleanup") == "number" and OMARCHY_VERSION.match(description):
         start = datetime.datetime.strptime(snap["date"], "%Y-%m-%d %H:%M:%S").astimezone()
         changes = [e for e in events if start <= e[0] < start + UPDATE_WINDOW]
         version = short_version(description)
+        listed = []
         for _, action, package, versions in changes:
-            if package == "omarchy" and action == "upgraded" and "->" in versions:
-                version += " → " + short_version(versions.split("->")[1])
-        count = len(changes)
-        if count == 0:
-            summary = "no changes"
-        else:
-            summary = "%d package%s" % (count, "" if count == 1 else "s")
+            old, new = "", ""
+            if action == "upgraded" and "->" in versions:
+                old, new = (v.strip() for v in versions.split("->", 1))
+                if package == "omarchy":
+                    version += " → " + short_version(new)
+            elif action == "installed":
+                new = versions.strip()
+            else:
+                old = versions.strip()
+            listed.append({"action": action, "package": package, "from": old, "to": new})
+        counts = [(sum(1 for c in listed if c["action"] == action), label)
+                  for action, label in (("upgraded", "updated"), ("installed", "added"), ("removed", "removed"))]
+        summary = ", ".join("%d %s" % (n, label) for n, label in counts if n) or "no changes"
         return {"origin": "omarchy-update", "title": "Before Omarchy update",
-                "detail": version + " · " + summary}
+                "detail": version + " · " + summary, "changes": listed}
 
     if user != "root":
         return {"origin": "manual", "title": description or "Manual snapshot",
-                "detail": "Made by " + user}
+                "detail": "Made by " + user, "changes": []}
 
     return {"origin": "other", "title": description or "(no description)",
-            "detail": "Made by " + user}
+            "detail": "Made by " + user, "changes": []}
 
 
 def cmd_status():
@@ -297,7 +308,7 @@ def cmd_quota_enable():
 
 def main(argv):
     if len(argv) < 2:
-        fail("usage: snapper-helper <status|create|delete|restore|quota-enable> [args]")
+        fail("usage: omasnapper-helper <status|create|delete|restore|quota-enable> [args]")
     cmd, rest = argv[1], argv[2:]
     if cmd == "status":
         cmd_status()
