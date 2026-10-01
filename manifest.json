@@ -34,7 +34,7 @@
         "options": [
           "compact",
           "normal",
-          "comfortable"
+          "roomy"
         ],
         "defaultValue": "normal",
         "description": "How tightly the panel is laid out."

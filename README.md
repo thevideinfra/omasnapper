@@ -19,7 +19,7 @@ Omarchy takes a snapshot before every update. Until now there was no desktop UI 
 - **Files** — list the files that differ between the snapshot and now (`snapper status N..0`).
 - **Folder** — open the snapshot's read-only folder, e.g. `/.snapshots/9/snapshot`. The first time, it asks to let your user read `/.snapshots` (snapper's `SYNC_ACL`).
 - **Retention** — how many snapshots to keep, whether older ones are deleted automatically, and scheduled snapshots (off, daily or hourly). Before you apply, the panel names every snapshot the change deletes. Applying takes your password, writes the snapper config, prunes right away, and turns `snapper-timeline.timer` on or off. It also raises the Limine boot menu's `MAX_SNAPSHOT_ENTRIES` in `/etc/limine-entry-tool.d/zz-omasnapper.conf` so every kept snapshot stays restorable. The section can be hidden in settings.
-- **Settings** (gear) — density, font size, show or hide retention, allow browsing snapshot folders, and enabling btrfs quotas for per-snapshot sizes.
+- **Settings** (gear) — density (compact, normal, roomy), font size, show or hide retention, allow browsing snapshot folders, and enabling btrfs quotas for per-snapshot sizes.
 
 There is no cleanup button: snapper's hourly `snapper-cleanup.timer` and Omarchy's updater already prune to the retention limit, and applying a lower limit prunes at once.
 

@@ -5,10 +5,12 @@ import qs.Commons
 import qs.Ui
 import "Model.js" as Model
 
-// Bar widget and panel for videinfra.omasnapper, styled after dotsync,
-// omaudiopanel and tandem: an accent header with a gear, compact sections,
-// and a settings view whose choices save as soon as they are picked. The
-// snapper work itself is done by bin/omasnapper-helper.
+// Bar widget and panel for videinfra.omasnapper, in tandem's panel style:
+// a header with the version and repository link, icon section labels, boxed
+// choices and steppers, card rows, and tinted banners for pending changes
+// and errors. Like omaudiopanel it keeps a gear for its settings view, whose
+// choices save as soon as they are picked. The snapper work itself is done
+// by bin/omasnapper-helper.
 Panel {
   id: root
   moduleName: "videinfra.omasnapper"
@@ -42,6 +44,30 @@ Panel {
 
   function sp(px) {
     return Style.space(px * densityScale)
+  }
+
+  // The bar foreground at a given opacity, for card fills and outlines.
+  function tint(alpha) {
+    return Util.alpha(root.barForeground, alpha)
+  }
+
+  // Text on an accent fill: black or white by the accent's luminance, so it
+  // stays readable whatever the theme's accent is.
+  readonly property color onAccent: {
+    var c = Color.accent
+    return (0.2126 * c.r + 0.7152 * c.g + 0.0722 * c.b) > 0.5 ? "#101014" : "#ffffff"
+  }
+  readonly property color urgent: root.bar ? root.bar.urgent : Color.urgent
+
+  readonly property string repoUrl: "https://github.com/thevideinfra/omasnapper"
+  // Shown in the header's pill; read from manifest.json so it cannot drift.
+  property string version: ""
+
+  FileView {
+    path: decodeURIComponent(String(Qt.resolvedUrl("manifest.json")).replace(/^file:\/\//, ""))
+    onLoaded: {
+      try { root.version = JSON.parse(text()).version || "" } catch (e) { root.version = "" }
+    }
   }
 
   function setSetting(key, value) {
@@ -322,7 +348,7 @@ Panel {
     open: root.opened
     focusTarget: keyCatcher
     contentWidth: panel.fittedContentWidth(Math.max(root.sp(380), Style.space(260)))
-    contentHeight: panel.fittedContentHeight(column.implicitHeight, root.sp(820))
+    contentHeight: panel.fittedContentHeight(column.implicitHeight, root.sp(860))
 
     PanelKeyCatcher {
       id: keyCatcher
@@ -342,12 +368,12 @@ Panel {
         Column {
           id: column
           width: parent.width
-          spacing: root.sp(12)
+          spacing: root.sp(10)
 
-          // ---------- Header: icon · title/status · gear ----------
+          // ---------- Header: icon · title, version, repo / status · gear ----------
           Item {
             width: parent.width
-            implicitHeight: Math.max(headerIcon.implicitHeight, headerLabels.implicitHeight, gearButton.implicitHeight)
+            implicitHeight: Math.max(headerIcon.implicitHeight, headerLabels.implicitHeight)
 
             Text {
               id: headerIcon
@@ -355,7 +381,7 @@ Panel {
               text: "󰁯"
               color: Color.accent
               font.family: Style.font.family
-              font.pixelSize: root.fontDisplay
+              font.pixelSize: Math.round(root.fontDisplay * 1.2)
               anchors.left: parent.left
               anchors.verticalCenter: parent.verticalCenter
             }
@@ -363,20 +389,85 @@ Panel {
             Column {
               id: headerLabels
               anchors.left: headerIcon.right
-              anchors.leftMargin: root.sp(14)
+              anchors.leftMargin: root.sp(12)
               anchors.right: gearButton.left
-              anchors.rightMargin: root.sp(12)
+              anchors.rightMargin: root.sp(8)
               anchors.verticalCenter: parent.verticalCenter
               spacing: root.sp(2)
 
-              Text {
+              // The name on the left; the version and the repository link on
+              // the right of the same line, as in tandem.
+              Item {
                 width: parent.width
-                text: "Omasnapper"
-                color: root.barForeground
-                font.family: Style.font.family
-                font.pixelSize: root.fontTitle
-                font.bold: true
-                elide: Text.ElideRight
+                implicitHeight: Math.max(titleText.implicitHeight, versionRow.implicitHeight)
+
+                Text {
+                  id: titleText
+                  anchors.left: parent.left
+                  anchors.verticalCenter: parent.verticalCenter
+                  text: "Omasnapper"
+                  color: root.barForeground
+                  font.family: Style.font.family
+                  font.pixelSize: root.fontTitle
+                  font.bold: true
+                }
+
+                Row {
+                  id: versionRow
+                  anchors.right: parent.right
+                  anchors.verticalCenter: parent.verticalCenter
+                  spacing: root.sp(7)
+
+                  Rectangle {
+                    visible: root.version !== ""
+                    anchors.verticalCenter: parent.verticalCenter
+                    width: versionText.implicitWidth + root.sp(10)
+                    height: versionText.implicitHeight + root.sp(4)
+                    radius: height / 2
+                    color: Util.alpha(Color.accent, 0.15)
+                    border.width: 1
+                    border.color: Util.alpha(Color.accent, 0.45)
+
+                    Text {
+                      id: versionText
+                      anchors.centerIn: parent
+                      textFormat: Text.PlainText
+                      text: "v" + root.version
+                      color: Color.accent
+                      font.family: Style.font.family
+                      font.pixelSize: root.fontCaption
+                      font.bold: true
+                    }
+                  }
+
+                  Text {
+                    anchors.verticalCenter: parent.verticalCenter
+                    textFormat: Text.PlainText
+                    text: ""
+                    color: repoMouse.containsMouse ? Color.accent : root.barForeground
+                    opacity: repoMouse.containsMouse ? 1.0 : 0.6
+                    font.family: Style.font.family
+                    font.pixelSize: root.fontBody
+
+                    MouseArea {
+                      id: repoMouse
+                      anchors.fill: parent
+                      anchors.margins: -root.sp(4)
+                      hoverEnabled: true
+                      cursorShape: Qt.PointingHandCursor
+                      onClicked: {
+                        Quickshell.execDetached(["xdg-open", root.repoUrl])
+                        root.close()
+                      }
+                    }
+
+                    PanelToolTip {
+                      visible: repoMouse.containsMouse
+                      text: "Open on GitHub"
+                      fontFamily: Style.font.family
+                    }
+                  }
+                }
               }
 
               Text {
@@ -387,26 +478,35 @@ Panel {
                 font.family: Style.font.family
                 font.pixelSize: root.fontCaption
                 font.bold: true
-                font.letterSpacing: 1.2
+                font.letterSpacing: 0.6
                 elide: Text.ElideRight
               }
             }
 
-            Text {
+            // Opens the settings view in place of the panel content.
+            Rectangle {
               id: gearButton
               anchors.right: parent.right
               anchors.verticalCenter: parent.verticalCenter
-              textFormat: Text.PlainText
-              text: root.settingsOpen ? "󰅖" : "󰒓"
-              color: gearMouse.containsMouse || root.settingsOpen ? Color.accent : root.barForeground
-              font.family: Style.font.family
-              font.pixelSize: Math.round(root.fontTitle * 1.45)
-              opacity: gearMouse.containsMouse || root.settingsOpen ? 1.0 : 0.85
+              width: root.sp(28)
+              height: root.sp(28)
+              radius: root.sp(6)
+              color: gearMouse.containsMouse || root.settingsOpen ? Util.alpha(Color.accent, 0.15) : "transparent"
+              border.width: root.settingsOpen ? 1 : 0
+              border.color: Util.alpha(Color.accent, 0.45)
+
+              Text {
+                anchors.centerIn: parent
+                textFormat: Text.PlainText
+                text: root.settingsOpen ? "󰅖" : "󰒓"
+                color: gearMouse.containsMouse || root.settingsOpen ? Color.accent : root.barForeground
+                font.family: Style.font.family
+                font.pixelSize: Math.round(root.fontTitle * 1.2)
+              }
 
               MouseArea {
                 id: gearMouse
                 anchors.fill: parent
-                anchors.margins: -root.sp(4)
                 hoverEnabled: true
                 cursorShape: Qt.PointingHandCursor
                 onClicked: root.settingsOpen = !root.settingsOpen
@@ -420,6 +520,8 @@ Panel {
             }
           }
 
+          PanelSeparator { foreground: root.barForeground }
+
           MainView {
             width: parent.width
             visible: !root.settingsOpen
@@ -430,68 +532,62 @@ Panel {
             visible: root.settingsOpen
           }
 
-          Text {
+          Banner {
             width: parent.width
             visible: root.errorText !== ""
-            wrapMode: Text.Wrap
-            textFormat: Text.PlainText
-            text: root.errorText
-            color: root.bar ? root.bar.urgent : Color.urgent
-            font.family: Style.font.family
-            font.pixelSize: root.fontCaption
+            danger: true
+
+            Text {
+              width: parent.width
+              wrapMode: Text.Wrap
+              textFormat: Text.PlainText
+              text: root.errorText
+              color: root.barForeground
+              font.family: Style.font.family
+              font.pixelSize: root.fontSmall
+            }
           }
         }
       }
     }
   }
 
+  // ===================== views =====================
+
   component MainView: Column {
     spacing: root.sp(10)
 
     // After a restore: the old system keeps running until a reboot.
-    CursorSurface {
+    Banner {
       width: parent.width
       visible: root.restoredNumber > 0
-      bordered: true
-      foreground: root.barForeground
-      implicitHeight: rebootColumn.implicitHeight + 2 * root.sp(8)
 
-      Column {
-        id: rebootColumn
-        anchors.left: parent.left
-        anchors.right: parent.right
-        anchors.top: parent.top
-        anchors.margins: root.sp(8)
+      Text {
+        width: parent.width
+        wrapMode: Text.WordWrap
+        textFormat: Text.PlainText
+        text: "Restored #" + root.restoredNumber + ". Reboot to start the restored system."
+        color: root.barForeground
+        font.family: Style.font.family
+        font.pixelSize: root.fontSmall
+        font.bold: true
+      }
+
+      Row {
         spacing: root.sp(8)
-
-        Text {
-          width: parent.width
-          wrapMode: Text.WordWrap
-          textFormat: Text.PlainText
-          text: "Restored #" + root.restoredNumber + ". Reboot to start the restored system."
-          color: Color.accent
-          font.family: Style.font.family
-          font.pixelSize: root.fontBody
-          font.bold: true
+        SmallButton {
+          text: "󰜉  Reboot now"
+          kind: "primary"
+          onClicked: Quickshell.execDetached(["systemctl", "reboot"])
         }
-
-        Row {
-          spacing: root.sp(16)
-          ActionLink {
-            text: "󰜉  Reboot now"
-            strong: true
-            onClicked: Quickshell.execDetached(["systemctl", "reboot"])
-          }
-          ActionLink {
-            text: "Later"
-            onClicked: root.restoredNumber = 0
-          }
+        SmallButton {
+          text: "Later"
+          onClicked: root.restoredNumber = 0
         }
       }
     }
 
-    PanelSeparator { foreground: root.barForeground }
-    SectionHeader { text: "SNAPSHOTS" }
+    SectionLabel { icon: ""; text: "SNAPSHOTS" }
 
     Caption {
       width: parent.width
@@ -501,7 +597,7 @@ Panel {
 
     Column {
       width: parent.width
-      spacing: root.sp(3)
+      spacing: root.sp(5)
 
       Repeater {
         model: root.snapshots
@@ -514,12 +610,10 @@ Panel {
       }
     }
 
-    PanelSeparator { foreground: root.barForeground }
-
-    ActionLink {
+    SmallButton {
       visible: !root.naming
       text: "󰄄  Snapshot now"
-      strong: true
+      kind: "primary"
       active: !root.busy
       onClicked: root.createSnapshot()
     }
@@ -550,15 +644,15 @@ Panel {
       }
 
       Row {
-        spacing: root.sp(16)
+        spacing: root.sp(8)
 
-        ActionLink {
+        SmallButton {
           text: "󰄄  Take snapshot"
-          strong: true
+          kind: "primary"
           active: !root.busy
           onClicked: root.createSnapshot()
         }
-        ActionLink {
+        SmallButton {
           text: "Cancel"
           onClicked: root.naming = false
         }
@@ -584,15 +678,14 @@ Panel {
   // How many snapshots to keep, whether older ones are deleted, and
   // scheduled snapshots. Choices apply together, with one password.
   component RetentionView: Column {
-    spacing: root.sp(10)
+    spacing: root.sp(9)
 
     PanelSeparator { foreground: root.barForeground }
-    SectionHeader { text: "RETENTION" }
+    SectionLabel { icon: ""; text: "RETENTION"; tag: "NEEDS PASSWORD" }
 
     Item {
       width: parent.width
       implicitHeight: Math.max(keepLabel.implicitHeight, keepStepper.implicitHeight)
-      opacity: root.autoChoice ? 1.0 : 0.45
 
       Text {
         id: keepLabel
@@ -601,6 +694,7 @@ Panel {
         textFormat: Text.PlainText
         text: "Keep the newest"
         color: root.barForeground
+        opacity: root.autoChoice ? 1.0 : 0.45
         font.family: Style.font.family
         font.pixelSize: root.fontBody
       }
@@ -608,28 +702,33 @@ Panel {
       Row {
         id: keepStepper
         anchors.right: parent.right
-        anchors.verticalCenter: parent.verticalCenter
-        spacing: root.sp(12)
+        spacing: root.sp(8)
 
-        ActionLink {
-          text: "−"
+        StepButton {
+          iconText: ""
+          tooltipText: "Keep one fewer"
           active: root.autoChoice && root.keepChoice > 1
-          onClicked: root.draftKeep = root.keepChoice - 1
+          onClicked: if (active) root.draftKeep = root.keepChoice - 1
         }
+
         Text {
+          anchors.verticalCenter: parent.verticalCenter
+          width: root.sp(24)
+          horizontalAlignment: Text.AlignHCenter
           textFormat: Text.PlainText
           text: String(root.keepChoice)
           color: Color.accent
+          opacity: root.autoChoice ? 1.0 : 0.45
           font.family: Style.font.family
-          font.pixelSize: root.fontBody
+          font.pixelSize: root.fontTitle
           font.bold: true
-          width: root.sp(24)
-          horizontalAlignment: Text.AlignHCenter
         }
-        ActionLink {
-          text: "+"
+
+        StepButton {
+          iconText: ""
+          tooltipText: "Keep one more"
           active: root.autoChoice && root.keepChoice < 50
-          onClicked: root.draftKeep = root.keepChoice + 1
+          onClicked: if (active) root.draftKeep = root.keepChoice + 1
         }
       }
     }
@@ -649,8 +748,9 @@ Panel {
       font.pixelSize: root.fontBody
     }
 
-    ChoiceChips {
+    Segmented {
       width: parent.width
+      columns: 3
       choices: [
         { value: "off", label: "Off" },
         { value: "daily", label: "Daily" },
@@ -669,10 +769,12 @@ Panel {
           : "Only update, manual and restore snapshots.")
     }
 
-    Column {
+    // Pending changes, in tandem's banner: what applying does, then the
+    // buttons. Red when it deletes snapshots.
+    Banner {
       width: parent.width
       visible: root.retentionDirty
-      spacing: root.sp(8)
+      danger: root.retentionDeletes.length > 0
 
       Text {
         width: parent.width
@@ -681,76 +783,66 @@ Panel {
         text: root.retentionDeletes.length > 0
           ? "Applying deletes " + root.retentionDeletes.map(function(n) { return "#" + n }).join(", ") + " now."
           : "Nothing is deleted now."
-        color: root.retentionDeletes.length > 0 ? (root.bar ? root.bar.urgent : Color.urgent) : root.barForeground
+        color: root.barForeground
         font.family: Style.font.family
         font.pixelSize: root.fontSmall
-      }
-
-      Row {
-        spacing: root.sp(16)
-
-        ActionLink {
-          text: root.retentionDeletes.length > 0 ? "Apply and delete " + root.retentionDeletes.length : "Apply"
-          strong: true
-          danger: root.retentionDeletes.length > 0
-          active: !root.busy
-          onClicked: root.applyRetention()
-        }
-        ActionLink {
-          text: "Reset"
-          active: !root.busy
-          onClicked: root.resetRetention()
-        }
+        font.bold: true
       }
 
       Caption {
         width: parent.width
-        text: "Needs your password. The boot menu grows to fit, so every kept snapshot stays restorable."
+        text: "The boot menu grows to fit every kept snapshot."
+      }
+
+      Item {
+        width: parent.width
+        implicitHeight: applyRow.implicitHeight
+
+        Row {
+          id: applyRow
+          anchors.right: parent.right
+          spacing: root.sp(8)
+
+          SmallButton {
+            text: "Reset"
+            active: !root.busy
+            onClicked: root.resetRetention()
+          }
+          SmallButton {
+            text: root.retentionDeletes.length > 0 ? "Apply & delete " + root.retentionDeletes.length : "Apply"
+            kind: root.retentionDeletes.length > 0 ? "danger-fill" : "primary"
+            active: !root.busy
+            onClicked: root.applyRetention()
+          }
+        }
       }
     }
   }
 
+  // Replaces the main view while the gear is on. Everything here saves as
+  // soon as it is picked.
   component SettingsView: Column {
-    spacing: root.sp(10)
+    spacing: root.sp(9)
 
-    PanelSeparator { foreground: root.barForeground }
+    SectionLabel { icon: ""; text: "DENSITY" }
 
-    Text {
-      textFormat: Text.PlainText
-      text: "󰁍 Back"
-      color: root.barForeground
-      font.family: Style.font.family
-      font.pixelSize: root.fontSmall
-      font.bold: true
-      opacity: backMouse.containsMouse ? 1.0 : 0.75
-
-      MouseArea {
-        id: backMouse
-        anchors.fill: parent
-        anchors.margins: -root.sp(4)
-        hoverEnabled: true
-        cursorShape: Qt.PointingHandCursor
-        onClicked: root.settingsOpen = false
-      }
-    }
-
-    SectionHeader { text: "DENSITY" }
-
-    ChoiceChips {
+    Segmented {
       width: parent.width
+      columns: 3
       choices: [
         { value: "compact", label: "Compact" },
         { value: "normal", label: "Normal" },
-        { value: "comfortable", label: "Comfortable" }
+        { value: "roomy", label: "Roomy" }
       ]
-      selected: root.density
+      selected: root.density === "comfortable" ? "roomy" : root.density
       onPicked: function(value) { root.setSetting("density", value) }
     }
 
-    SectionHeader { text: "FONT SIZE" }
+    SectionLabel { icon: ""; text: "FONT SIZE" }
 
-    ChoiceChips {
+    Segmented {
       width: parent.width
+      columns: 3
       choices: [
         { value: "small", label: "Small" },
         { value: "normal", label: "Normal" },
@@ -761,7 +853,7 @@ Panel {
     }
 
     PanelSeparator { foreground: root.barForeground }
-    SectionHeader { text: "SHOW" }
+    SectionLabel { icon: ""; text: "SHOW" }
 
     SettingSwitch {
       width: parent.width
@@ -778,7 +870,7 @@ Panel {
     }
 
     PanelSeparator { foreground: root.barForeground }
-    SectionHeader { text: "SNAPSHOT FOLDERS" }
+    SectionLabel { icon: ""; text: "SNAPSHOT FOLDERS"; tag: root.saved.browse ? "" : "NEEDS PASSWORD" }
 
     Caption {
       width: parent.width
@@ -787,7 +879,7 @@ Panel {
         : "Snapshot folders under /.snapshots are root-only. Allowing browsing lets your user read them."
     }
 
-    ActionLink {
+    SmallButton {
       visible: !root.saved.browse
       text: "󰉋  Allow browsing"
       active: !root.busy
@@ -795,7 +887,11 @@ Panel {
     }
 
     PanelSeparator { foreground: root.barForeground }
-    SectionHeader { text: "SNAPSHOT SIZES" }
+    SectionLabel {
+      icon: ""
+      text: "SNAPSHOT SIZES"
+      tag: root.snapData && root.snapData.quota_enabled ? "" : "NEEDS PASSWORD"
+    }
 
     Caption {
       width: parent.width
@@ -804,7 +900,7 @@ Panel {
         : "Sizes need btrfs quotas. They add a small, constant cost to disk writes."
     }
 
-    ActionLink {
+    SmallButton {
       visible: !(root.snapData && root.snapData.quota_enabled)
       text: "󰋊  Enable quotas"
       active: !root.busy
@@ -812,25 +908,12 @@ Panel {
     }
   }
 
-  component SectionHeader: PanelSectionHeader {
-    foreground: root.barForeground
-    fontFamily: Style.font.family
-    fontSize: root.fontCaption
-  }
+  // ===================== pieces =====================
 
-  component Caption: Text {
-    color: root.barForeground
-    opacity: 0.45
-    wrapMode: Text.WordWrap
-    textFormat: Text.PlainText
-    font.family: Style.font.family
-    font.pixelSize: root.fontSmall
-  }
-
-  // A snapshot in the list: why it was made, when, and its size. Click to
-  // select it; the selected row shows Restore and Delete, and their confirm
-  // replaces them in place.
-  component SnapshotRow: CursorSurface {
+  // A snapshot as a card: why it was made, when, and its size. Click to
+  // select it; the selected card lists what its update changed and shows
+  // the actions, whose confirm replaces them in place.
+  component SnapshotRow: Rectangle {
     id: row
     property var snap: ({})
     readonly property bool isSelected: root.selected === root.keyOf(snap)
@@ -838,22 +921,11 @@ Panel {
     readonly property bool isRestoring: root.busy && root.action === "restore"
       && root.actionSnap && root.keyOf(root.actionSnap) === root.keyOf(snap)
 
-    hasCursor: rowMouse.containsMouse
-    current: isSelected
-    foreground: root.barForeground
-    implicitHeight: rowColumn.implicitHeight + root.sp(12)
-
-    Rectangle {
-      visible: row.isSelected
-      anchors.left: parent.left
-      anchors.leftMargin: root.sp(2)
-      anchors.top: parent.top
-      anchors.topMargin: root.sp(8)
-      width: Math.max(2, root.sp(3))
-      height: rowTop.height - root.sp(4)
-      radius: width / 2
-      color: Color.accent
-    }
+    implicitHeight: rowColumn.implicitHeight + root.sp(14)
+    radius: root.sp(7)
+    color: isSelected ? Util.alpha(Color.accent, 0.12) : (rowMouse.containsMouse ? root.tint(0.08) : root.tint(0.05))
+    border.width: 1
+    border.color: isSelected ? Util.alpha(Color.accent, 0.45) : root.tint(0.1)
 
     MouseArea {
       id: rowMouse
@@ -871,9 +943,7 @@ Panel {
       anchors.left: parent.left
       anchors.right: parent.right
       anchors.top: parent.top
-      anchors.topMargin: root.sp(6)
-      anchors.leftMargin: root.sp(6)
-      anchors.rightMargin: root.sp(6)
+      anchors.margins: root.sp(7)
       spacing: root.sp(8)
 
       Row {
@@ -881,19 +951,28 @@ Panel {
         width: parent.width
         spacing: root.sp(8)
 
-        Text {
-          textFormat: Text.PlainText
-          text: Model.originIcon(row.snap.origin)
-          color: row.isSelected ? Color.accent : root.barForeground
-          font.family: Style.font.family
-          font.pixelSize: root.fontTitle
-          width: root.sp(22)
-          horizontalAlignment: Text.AlignHCenter
+        // The origin icon in a chip, like tandem's desktop number.
+        Rectangle {
+          width: root.sp(28)
+          height: root.sp(28)
           anchors.verticalCenter: parent.verticalCenter
+          radius: root.sp(6)
+          color: root.tint(0.08)
+          border.width: 1
+          border.color: row.isSelected ? Color.accent : root.tint(0.18)
+
+          Text {
+            anchors.centerIn: parent
+            textFormat: Text.PlainText
+            text: Model.originIcon(row.snap.origin)
+            color: row.isSelected ? Color.accent : root.barForeground
+            font.family: Style.font.family
+            font.pixelSize: root.fontBody
+          }
         }
 
         Column {
-          width: parent.width - root.sp(22) - rowSide.width - 2 * root.sp(8)
+          width: parent.width - root.sp(28) - rowSide.width - 2 * root.sp(8)
           anchors.verticalCenter: parent.verticalCenter
           spacing: root.sp(2)
 
@@ -910,7 +989,6 @@ Panel {
           }
 
           TextField {
-            id: renameField
             width: parent.width
             visible: row.isRenaming
             foreground: root.barForeground
@@ -956,8 +1034,8 @@ Panel {
             textFormat: Text.PlainText
             text: (row.snap.pinned ? "󰐃 " : "") + "#" + row.snap.number
               + (row.snap.size !== null && row.snap.size !== undefined ? " · " + Model.fmtBytes(row.snap.size) : "")
-            color: root.barForeground
-            opacity: 0.45
+            color: row.snap.pinned ? Color.accent : root.barForeground
+            opacity: row.snap.pinned ? 0.9 : 0.45
             font.family: Style.font.family
             font.pixelSize: root.fontCaption
           }
@@ -966,259 +1044,370 @@ Panel {
 
       // What the update behind this snapshot changed, which is what a
       // restore undoes. Long lists stop at ten lines.
-      Column {
+      DetailList {
         visible: row.isSelected && (row.snap.changes || []).length > 0
-        x: root.sp(30)
-        width: parent.width - x
-        spacing: root.sp(2)
-
-        Text {
-          width: parent.width
-          textFormat: Text.PlainText
-          text: "That update changed:"
-          color: root.barForeground
-          opacity: 0.55
-          font.family: Style.font.family
-          font.pixelSize: root.fontCaption
-          font.bold: true
-        }
-
-        Repeater {
-          model: (row.snap.changes || []).slice(0, 10)
-
-          Text {
-            required property var modelData
-            width: parent.width
-            textFormat: Text.PlainText
-            text: Model.changeLine(modelData)
-            color: root.barForeground
-            opacity: 0.8
-            font.family: Style.font.family
-            font.pixelSize: root.fontCaption
-            elide: Text.ElideRight
-          }
-        }
-
-        Text {
-          visible: (row.snap.changes || []).length > 10
-          textFormat: Text.PlainText
-          text: "and " + ((row.snap.changes || []).length - 10) + " more"
-          color: root.barForeground
-          opacity: 0.55
-          font.family: Style.font.family
-          font.pixelSize: root.fontCaption
-        }
+        heading: "That update changed:"
+        lines: (row.snap.changes || []).map(function(c) { return Model.changeLine(c) })
+        total: (row.snap.changes || []).length
+        shown: 10
       }
 
       // Files that differ between this snapshot and now.
-      Column {
+      DetailList {
         visible: root.filesKey === root.keyOf(row.snap)
-        x: root.sp(30)
-        width: parent.width - x
-        spacing: root.sp(2)
+        heading: root.filesTotal === 0 ? "No files changed since this snapshot."
+          : root.filesTotal + (root.filesTotal === 1 ? " file differs" : " files differ") + " from now:"
+        lines: root.filesKey === root.keyOf(row.snap) ? root.files.map(function(f) { return Model.fileLine(f) }) : []
+        total: root.filesTotal
+        shown: 30
+        elideMiddle: true
+      }
 
-        Text {
-          width: parent.width
-          textFormat: Text.PlainText
-          text: root.filesTotal === 0 ? "No files changed since this snapshot."
-            : root.filesTotal + (root.filesTotal === 1 ? " file differs" : " files differ") + " from now:"
-          color: root.barForeground
-          opacity: 0.55
-          font.family: Style.font.family
-          font.pixelSize: root.fontCaption
-          font.bold: true
+      Text {
+        visible: row.isRestoring
+        width: parent.width
+        wrapMode: Text.WordWrap
+        textFormat: Text.PlainText
+        text: "Restoring… this can take a minute."
+        color: Color.accent
+        font.family: Style.font.family
+        font.pixelSize: root.fontSmall
+        font.bold: true
+      }
+
+      Flow {
+        visible: row.isSelected && !row.isRestoring && root.confirmKind === ""
+        width: parent.width
+        spacing: root.sp(6)
+
+        SmallButton {
+          text: "󰁯  Restore"
+          kind: "accent"
+          active: !root.busy
+          onClicked: root.confirmKind = "restore"
         }
-
-        Repeater {
-          model: root.filesKey === root.keyOf(row.snap) ? root.files.slice(0, 30) : []
-
-          Text {
-            required property var modelData
-            width: parent.width
-            textFormat: Text.PlainText
-            text: Model.fileLine(modelData)
-            color: root.barForeground
-            opacity: 0.8
-            font.family: Style.font.family
-            font.pixelSize: root.fontCaption
-            elide: Text.ElideMiddle
-          }
+        SmallButton {
+          text: "󰆴  Delete"
+          kind: "danger"
+          active: !root.busy
+          onClicked: root.confirmKind = "delete"
         }
-
-        Text {
-          visible: root.filesTotal > 30
-          textFormat: Text.PlainText
-          text: "and " + (root.filesTotal - 30) + " more"
-          color: root.barForeground
-          opacity: 0.55
-          font.family: Style.font.family
-          font.pixelSize: root.fontCaption
+        SmallButton {
+          text: row.snap.pinned ? "󰐄  Unpin" : "󰐃  Pin"
+          active: !root.busy
+          onClicked: root.togglePin(row.snap)
+        }
+        SmallButton {
+          text: "󰏫  Rename"
+          active: !root.busy
+          onClicked: root.renaming = row.isRenaming ? "" : root.keyOf(row.snap)
+        }
+        SmallButton {
+          text: "󰈔  Files"
+          active: !root.busy
+          onClicked: root.showFiles(row.snap)
+        }
+        SmallButton {
+          text: "󰉋  Folder"
+          active: !root.busy
+          onClicked: root.openFolder(row.snap)
         }
       }
 
-      // Actions, or the confirm that replaces them.
-      Item {
+      Column {
+        visible: row.isSelected && !row.isRestoring && root.confirmKind !== ""
         width: parent.width
-        visible: row.isSelected || row.isRestoring
-        implicitHeight: row.isRestoring ? restoringText.implicitHeight
-          : (root.confirmKind === "" ? actionRow.implicitHeight : confirmColumn.implicitHeight)
+        spacing: root.sp(8)
 
         Text {
-          id: restoringText
-          visible: row.isRestoring
           width: parent.width
           wrapMode: Text.WordWrap
           textFormat: Text.PlainText
-          text: "Restoring… this can take a minute."
-          color: Color.accent
+          text: root.confirmKind === "delete"
+            ? "Delete snapshot #" + row.snap.number + "? This cannot be undone."
+            : (root.confirmKind === "browse"
+              ? "Snapshot folders are root-only. Let your user read them? Needs your password once."
+              : "Roll the system back to #" + row.snap.number + "? Your password is needed, then a reboot.")
+          color: root.barForeground
           font.family: Style.font.family
           font.pixelSize: root.fontSmall
         }
 
-        Flow {
-          id: actionRow
-          visible: !row.isRestoring && root.confirmKind === ""
-          x: root.sp(30)
-          width: parent.width - x
-          spacing: root.sp(16)
-
-          ActionLink {
-            text: "󰁯  Restore"
-            strong: true
-            active: !root.busy
-            onClicked: root.confirmKind = "restore"
-          }
-          ActionLink {
-            text: "󰆴  Delete"
-            danger: true
-            active: !root.busy
-            onClicked: root.confirmKind = "delete"
-          }
-          ActionLink {
-            text: row.snap.pinned ? "󰐄  Unpin" : "󰐃  Pin"
-            active: !root.busy
-            onClicked: root.togglePin(row.snap)
-          }
-          ActionLink {
-            text: "󰏫  Rename"
-            active: !root.busy
-            onClicked: root.renaming = row.isRenaming ? "" : root.keyOf(row.snap)
-          }
-          ActionLink {
-            text: "󰈔  Files"
-            active: !root.busy
-            onClicked: root.showFiles(row.snap)
-          }
-          ActionLink {
-            text: "󰉋  Folder"
-            active: !root.busy
-            onClicked: root.openFolder(row.snap)
-          }
-        }
-
-        Column {
-          id: confirmColumn
-          visible: !row.isRestoring && root.confirmKind !== ""
-          x: root.sp(30)
-          width: parent.width - x
+        Row {
           spacing: root.sp(8)
 
-          Text {
-            width: parent.width
-            wrapMode: Text.WordWrap
-            textFormat: Text.PlainText
-            text: root.confirmKind === "delete"
-              ? "Delete snapshot #" + row.snap.number + "? This cannot be undone."
-              : (root.confirmKind === "browse"
-                ? "Snapshot folders are root-only. Let your user read them? Needs your password once."
-                : "Roll the system back to #" + row.snap.number + "? Your password is needed, then a reboot.")
-            color: root.barForeground
-            font.family: Style.font.family
-            font.pixelSize: root.fontSmall
+          SmallButton {
+            text: root.confirmKind === "delete" ? "󰆴  Delete"
+              : (root.confirmKind === "browse" ? "󰉋  Allow and open" : "󰁯  Restore")
+            kind: root.confirmKind === "delete" ? "danger-fill" : "primary"
+            onClicked: root.confirmed()
           }
-
-          Row {
-            spacing: root.sp(16)
-
-            ActionLink {
-              text: root.confirmKind === "delete" ? "󰆴  Delete"
-                : (root.confirmKind === "browse" ? "󰉋  Allow and open" : "󰁯  Restore")
-              strong: true
-              danger: root.confirmKind === "delete"
-              onClicked: root.confirmed()
-            }
-            ActionLink {
-              text: "Cancel"
-              onClicked: root.confirmKind = ""
-            }
+          SmallButton {
+            text: "Cancel"
+            onClicked: root.confirmKind = ""
           }
         }
       }
     }
   }
 
-  // A text action: accent when strong or under the pointer, dim while busy.
-  // A danger action uses the urgent colour instead.
-  component ActionLink: Text {
-    id: link
-    property bool strong: false
-    property bool danger: false
-    property bool active: true
-    signal clicked()
+  // A heading and up to `shown` lines, then "and N more".
+  component DetailList: Column {
+    id: list
+    property string heading: ""
+    property var lines: []
+    property int total: 0
+    property int shown: 10
+    property bool elideMiddle: false
 
-    textFormat: Text.PlainText
-    color: !link.active ? root.barForeground
-      : (link.danger
-        ? (link.strong || linkMouse.containsMouse ? (root.bar ? root.bar.urgent : Color.urgent) : root.barForeground)
-        : (link.strong || linkMouse.containsMouse ? Color.accent : root.barForeground))
-    opacity: !link.active ? 0.4 : (linkMouse.containsMouse ? 1.0 : 0.85)
-    font.family: Style.font.family
-    font.pixelSize: root.fontBody
-    font.bold: link.strong
+    width: parent ? parent.width : implicitWidth
+    spacing: root.sp(2)
 
-    MouseArea {
-      id: linkMouse
-      anchors.fill: parent
-      anchors.margins: -root.sp(4)
-      enabled: link.active
-      hoverEnabled: true
-      cursorShape: Qt.PointingHandCursor
-      onClicked: link.clicked()
+    Text {
+      width: parent.width
+      textFormat: Text.PlainText
+      text: list.heading
+      color: root.barForeground
+      opacity: 0.55
+      font.family: Style.font.family
+      font.pixelSize: root.fontCaption
+      font.bold: true
+    }
+
+    Repeater {
+      model: list.lines.slice(0, list.shown)
+
+      Text {
+        required property var modelData
+        width: list.width
+        textFormat: Text.PlainText
+        text: modelData
+        color: root.barForeground
+        opacity: 0.8
+        font.family: Style.font.family
+        font.pixelSize: root.fontCaption
+        elide: list.elideMiddle ? Text.ElideMiddle : Text.ElideRight
+      }
+    }
+
+    Text {
+      visible: list.total > list.shown
+      textFormat: Text.PlainText
+      text: "and " + (list.total - list.shown) + " more"
+      color: root.barForeground
+      opacity: 0.55
+      font.family: Style.font.family
+      font.pixelSize: root.fontCaption
     }
   }
 
-  // A wrapping row of text choices; the selected one is accent, bold and
-  // underlined. choices: [{ value, label }].
-  component ChoiceChips: Flow {
-    id: chips
+  // Icon, uppercase title, and an optional tag on the right (tandem's).
+  component SectionLabel: Item {
+    id: section
+    property string icon: ""
+    property string text: ""
+    property string tag: ""
+
+    width: parent ? parent.width : implicitWidth
+    implicitHeight: Math.max(sectionTitle.implicitHeight, sectionIcon.implicitHeight)
+
+    Text {
+      id: sectionIcon
+      anchors.left: parent.left
+      anchors.verticalCenter: parent.verticalCenter
+      width: root.sp(20)
+      textFormat: Text.PlainText
+      text: section.icon
+      color: root.barForeground
+      opacity: 0.65
+      font.family: Style.font.family
+      font.pixelSize: root.fontBody
+    }
+
+    Text {
+      id: sectionTitle
+      anchors.left: sectionIcon.right
+      anchors.verticalCenter: parent.verticalCenter
+      textFormat: Text.PlainText
+      text: section.text
+      color: root.barForeground
+      font.family: Style.font.family
+      font.pixelSize: root.fontSmall
+      font.bold: true
+      font.letterSpacing: 1.2
+    }
+
+    Text {
+      anchors.right: parent.right
+      anchors.verticalCenter: parent.verticalCenter
+      textFormat: Text.PlainText
+      text: section.tag
+      color: root.barForeground
+      opacity: 0.4
+      font.family: Style.font.family
+      font.pixelSize: root.fontCaption
+      font.letterSpacing: 0.8
+    }
+  }
+
+  component Caption: Text {
+    color: root.barForeground
+    opacity: 0.45
+    wrapMode: Text.WordWrap
+    textFormat: Text.PlainText
+    font.family: Style.font.family
+    font.pixelSize: root.fontCaption
+  }
+
+  // Tinted box for pending changes, results and errors: accent, or urgent
+  // when `danger`. Children stack in a padded column.
+  component Banner: Rectangle {
+    id: banner
+    property bool danger: false
+    default property alias content: bannerColumn.data
+
+    implicitHeight: bannerColumn.implicitHeight + root.sp(16)
+    radius: root.sp(7)
+    color: Util.alpha(danger ? root.urgent : Color.accent, 0.12)
+    border.width: 1
+    border.color: Util.alpha(danger ? root.urgent : Color.accent, 0.4)
+
+    Column {
+      id: bannerColumn
+      anchors.left: parent.left
+      anchors.right: parent.right
+      anchors.top: parent.top
+      anchors.margins: root.sp(8)
+      spacing: root.sp(8)
+    }
+  }
+
+  // Boxed text button, in tandem's shapes. kind: "plain" (outlined),
+  // "accent" or "danger" (outlined in that colour), "primary" or
+  // "danger-fill" (filled).
+  component SmallButton: Rectangle {
+    id: btn
+    property string text: ""
+    property string kind: "plain"
+    property bool active: true
+    signal clicked()
+
+    readonly property bool filled: kind === "primary" || kind === "danger-fill"
+    readonly property color hue: kind === "danger" || kind === "danger-fill" ? root.urgent : Color.accent
+    readonly property bool hot: btnMouse.containsMouse && active
+
+    implicitWidth: btnText.implicitWidth + root.sp(18)
+    implicitHeight: btnText.implicitHeight + root.sp(10)
+    radius: root.sp(6)
+    opacity: active ? 1.0 : 0.4
+    color: filled ? (hot ? Qt.lighter(hue, 1.1) : hue)
+      : (hot ? Util.alpha(kind === "plain" ? Color.accent : hue, 0.18) : root.tint(0.05))
+    border.width: filled ? 0 : 1
+    border.color: hot || kind !== "plain" ? Util.alpha(kind === "plain" ? Color.accent : hue, hot ? 1.0 : 0.6) : root.tint(0.25)
+
+    Text {
+      id: btnText
+      anchors.centerIn: parent
+      textFormat: Text.PlainText
+      text: btn.text
+      color: btn.filled ? root.onAccent : (btn.kind === "plain" ? (btn.hot ? Color.accent : root.barForeground) : btn.hue)
+      font.family: Style.font.family
+      font.pixelSize: root.fontSmall
+      font.bold: btn.filled || btn.kind !== "plain"
+    }
+
+    MouseArea {
+      id: btnMouse
+      anchors.fill: parent
+      hoverEnabled: true
+      enabled: btn.active
+      cursorShape: Qt.PointingHandCursor
+      onClicked: btn.clicked()
+    }
+  }
+
+  // Boxed -/+ for the keep count; accent under the pointer, dim at the limit.
+  component StepButton: Rectangle {
+    id: step
+    property string iconText: ""
+    property string tooltipText: ""
+    property bool active: true
+    signal clicked()
+
+    implicitWidth: root.sp(26)
+    implicitHeight: root.sp(26)
+    radius: root.sp(7)
+    color: stepMouse.containsMouse && step.active ? Util.alpha(Color.accent, 0.2) : root.tint(0.06)
+    border.width: 1
+    border.color: stepMouse.containsMouse && step.active ? Color.accent : root.tint(0.25)
+    opacity: step.active ? 1.0 : 0.4
+
+    Text {
+      anchors.centerIn: parent
+      textFormat: Text.PlainText
+      text: step.iconText
+      color: stepMouse.containsMouse && step.active ? Color.accent : root.barForeground
+      font.family: Style.font.family
+      font.pixelSize: root.fontSmall
+    }
+
+    MouseArea {
+      id: stepMouse
+      anchors.fill: parent
+      hoverEnabled: true
+      cursorShape: step.active ? Qt.PointingHandCursor : Qt.ArrowCursor
+      onClicked: step.clicked()
+    }
+
+    PanelToolTip {
+      visible: stepMouse.containsMouse
+      text: step.tooltipText
+      fontFamily: Style.font.family
+    }
+  }
+
+  // Boxed choices in an even grid; the chosen one is outlined and tinted in
+  // the accent (tandem's). choices: [{ value, label }].
+  component Segmented: Grid {
+    id: segmented
     property var choices: []
     property var selected
     signal picked(var value)
 
-    spacing: root.sp(10)
+    spacing: root.sp(6)
+    readonly property real cellWidth: (width - (columns - 1) * spacing) / columns
 
     Repeater {
-      model: chips.choices
+      model: segmented.choices
 
-      Text {
+      Rectangle {
+        id: choice
         required property var modelData
-        readonly property bool chosen: chips.selected === modelData.value
-        textFormat: Text.PlainText
-        text: modelData.label
-        color: chosen ? Color.accent : root.barForeground
-        font.family: Style.font.family
-        font.pixelSize: root.fontSmall
-        font.bold: chosen
-        font.underline: chosen
-        opacity: chosen || chipMouse.containsMouse ? 1.0 : 0.55
+        readonly property bool chosen: segmented.selected === modelData.value
+        width: segmented.cellWidth
+        implicitHeight: choiceText.implicitHeight + root.sp(12)
+        radius: root.sp(7)
+        color: chosen ? Util.alpha(Color.accent, 0.12) : (choiceMouse.containsMouse ? root.tint(0.09) : root.tint(0.05))
+        border.width: chosen ? 2 : 1
+        border.color: chosen ? Color.accent : root.tint(0.12)
+
+        Text {
+          id: choiceText
+          anchors.centerIn: parent
+          textFormat: Text.PlainText
+          text: choice.modelData.label
+          color: choice.chosen ? Color.accent : root.barForeground
+          font.family: Style.font.family
+          font.pixelSize: root.fontSmall
+          font.bold: choice.chosen
+        }
 
         MouseArea {
-          id: chipMouse
+          id: choiceMouse
           anchors.fill: parent
-          anchors.margins: -root.sp(3)
           hoverEnabled: true
           cursorShape: Qt.PointingHandCursor
-          onClicked: chips.picked(parent.modelData.value)
+          onClicked: segmented.picked(choice.modelData.value)
         }
       }
     }

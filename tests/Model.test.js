@@ -105,3 +105,8 @@ test("snapshotName trims the typed name and falls back when blank", () => {
   assert.equal(M.snapshotName("   "), "Manual snapshot")
   assert.equal(M.snapshotName(undefined), "Manual snapshot")
 })
+
+test("densityScale reads roomy, and comfortable from older settings", () => {
+  assert.equal(M.densityScale("roomy"), 0.83)
+  assert.equal(M.densityScale("comfortable"), 0.83)
+})

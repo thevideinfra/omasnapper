@@ -94,7 +94,8 @@ function fileLine(file) {
 // omaudiopanel, tandem and dotsync, so the panels match side by side.
 function densityScale(name) {
   if (name === "compact") return 0.61
-  if (name === "comfortable") return 0.83
+  // "comfortable" is the old name for roomy, kept for saved settings.
+  if (name === "roomy" || name === "comfortable") return 0.83
   return 0.71
 }
 
