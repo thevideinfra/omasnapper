@@ -170,6 +170,10 @@ class HelperTest(unittest.TestCase):
         _, doc = self.run_helper("status")
         self.assertEqual(doc["snapshots"][0]["path"], "/.snapshots/6/snapshot")
 
+    def test_status_lists_each_config_snapshot_folder(self):
+        _, doc = self.run_helper("status")
+        self.assertEqual(doc["locations"], [{"config": "root", "subvolume": "/", "path": "/.snapshots"}])
+
 
 if __name__ == "__main__":
     unittest.main()

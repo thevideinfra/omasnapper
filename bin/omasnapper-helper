@@ -184,6 +184,8 @@ def cmd_status():
         "ok": True,
         "configs": configs,
         "settings": settings,
+        "locations": [{"config": c, "subvolume": subvolumes[c],
+                       "path": os.path.join(subvolumes[c], ".snapshots")} for c in configs],
         "snapshots": snapshots,
         "quota_enabled": bool(sizes),
         "total_exclusive_bytes": sum(sizes),

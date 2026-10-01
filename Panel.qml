@@ -242,6 +242,12 @@ Panel {
     else confirmKind = "browse"
   }
 
+  // Opens a folder from settings; asks for read access first if needed.
+  function openPath(path) {
+    if (saved.browse) Quickshell.execDetached(["xdg-open", path])
+    else run("allow-browse", { path: path }, ["allow-browse"], true)
+  }
+
   function applyRetention() {
     run("apply-settings", null, ["apply-settings", String(keepChoice), autoChoice ? "yes" : "no", scheduleChoice], true)
   }
@@ -870,20 +876,79 @@ Panel {
     }
 
     PanelSeparator { foreground: root.barForeground }
-    SectionLabel { icon: ""; text: "SNAPSHOT FOLDERS"; tag: root.saved.browse ? "" : "NEEDS PASSWORD" }
+    SectionLabel { icon: "\uf07c"; text: "LOCATION"; tag: root.saved.browse ? "" : "OPEN NEEDS PASSWORD" }
+
+    // Where each snapper config keeps its snapshots. Every snapshot is a
+    // read-only copy of the system at <folder>/<number>/snapshot.
+    Repeater {
+      model: root.snapData ? (root.snapData.locations || []) : []
+
+      Rectangle {
+        id: locationCard
+        required property var modelData
+        width: parent.width
+        implicitHeight: locationColumn.implicitHeight + root.sp(14)
+        radius: root.sp(7)
+        color: root.tint(0.05)
+        border.width: 1
+        border.color: root.tint(0.1)
+
+        Column {
+          id: locationColumn
+          anchors.left: parent.left
+          anchors.right: parent.right
+          anchors.top: parent.top
+          anchors.margins: root.sp(7)
+          spacing: root.sp(6)
+
+          Text {
+            width: parent.width
+            textFormat: Text.PlainText
+            text: locationCard.modelData.path
+            color: Color.accent
+            font.family: Style.font.family
+            font.pixelSize: root.fontBody
+            font.bold: true
+            elide: Text.ElideMiddle
+          }
+
+          Text {
+            width: parent.width
+            wrapMode: Text.WordWrap
+            textFormat: Text.PlainText
+            text: "Snapshots of " + locationCard.modelData.subvolume + " (snapper config \"" + locationCard.modelData.config
+              + "\"). Each one is a read-only copy at " + locationCard.modelData.path + "/<number>/snapshot."
+            color: root.barForeground
+            opacity: 0.55
+            font.family: Style.font.family
+            font.pixelSize: root.fontCaption
+          }
+
+          Row {
+            spacing: root.sp(6)
+
+            SmallButton {
+              text: root.saved.browse ? "󰉋  Open" : "󰉋  Allow and open"
+              kind: "accent"
+              active: !root.busy
+              onClicked: root.openPath(locationCard.modelData.path)
+            }
+            SmallButton {
+              text: "󰆏  Copy path"
+              onClicked: {
+                Quickshell.execDetached(["wl-copy", locationCard.modelData.path])
+                root.doneText = "Copied " + locationCard.modelData.path
+              }
+            }
+          }
+        }
+      }
+    }
 
     Caption {
       width: parent.width
-      text: root.saved.browse
-        ? "Your user can read snapshot folders. Open one from its row with Folder."
-        : "Snapshot folders under /.snapshots are root-only. Allowing browsing lets your user read them."
-    }
-
-    SmallButton {
       visible: !root.saved.browse
-      text: "󰉋  Allow browsing"
-      active: !root.busy
-      onClicked: root.run("allow-browse", null, ["allow-browse"], true)
+      text: "The folder is root-only until you allow your user to read it."
     }
 
     PanelSeparator { foreground: root.barForeground }
