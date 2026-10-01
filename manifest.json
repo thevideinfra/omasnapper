@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "id": "videinfra.omasnapper",
   "name": "omasnapper",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "author": "thevideinfra",
   "license": "MIT",
   "description": "See, take, delete and restore Btrfs snapshots from the Omarchy bar, with who made each one and why.",
