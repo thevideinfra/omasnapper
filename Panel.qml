@@ -144,13 +144,13 @@ Panel {
   }
 
   readonly property string pillText: {
-    if (!snapData) return errorText !== "" ? "󰁯 !" : "󰁯"
+    if (!snapData) return errorText !== "" ? "!" : ""
     if (snapData.quota_enabled) {
       var total = Number(snapData.total_exclusive_bytes || 0)
       var warnAt = Number(setting("warnThresholdGB", 5)) * 1024 * 1024 * 1024
-      return "󰁯 " + Model.fmtBytes(total) + (total >= warnAt && total > 0 ? " !" : "")
+      return Model.fmtBytes(total) + (total >= warnAt && total > 0 ? " !" : "")
     }
-    return "󰁯 " + snapshots.length
+    return String(snapshots.length)
   }
 
   implicitWidth: button.implicitWidth
@@ -337,13 +337,41 @@ Panel {
     onTriggered: root.refresh()
   }
 
+  // The bar pill: the omasnapper mark, then the snapshot count (or the
+  // space snapshots hold, with quotas on). The stock label is hidden and
+  // this row drawn in its place, so the mark and the count share one button.
   WidgetButton {
     id: button
     anchors.fill: parent
     bar: root.bar
-    text: root.pillText
+    labelVisible: false
+    hasVisualContent: true
+    fixedWidth: button.vertical ? -1 : pillRow.implicitWidth + button.scaledHorizontalMargin * 2
     tooltipText: "Omasnapper · system snapshots"
     onPressed: function(b) { if (b === Qt.LeftButton) root.toggle() }
+
+    Row {
+      id: pillRow
+      anchors.centerIn: parent
+      spacing: Style.space(5)
+
+      OmasnapperIcon {
+        anchors.verticalCenter: parent.verticalCenter
+        iconSize: Style.bar.iconCanvas
+        color: button.foreground
+      }
+
+      Text {
+        anchors.verticalCenter: parent.verticalCenter
+        visible: root.pillText !== ""
+        textFormat: Text.PlainText
+        text: root.pillText
+        color: button.foreground
+        font.family: button.fontFamily
+        font.pixelSize: button.fontSize
+        renderType: Text.NativeRendering
+      }
+    }
   }
 
   KeyboardPanel {
@@ -381,13 +409,12 @@ Panel {
             width: parent.width
             implicitHeight: Math.max(headerIcon.implicitHeight, headerLabels.implicitHeight)
 
-            Text {
+            // The mark as in the artwork: accent frames, a light arrow.
+            OmasnapperIcon {
               id: headerIcon
-              textFormat: Text.PlainText
-              text: "󰁯"
+              iconSize: Math.round(root.fontDisplay * 1.5)
               color: Color.accent
-              font.family: Style.font.family
-              font.pixelSize: Math.round(root.fontDisplay * 1.2)
+              arrowColor: root.barForeground
               anchors.left: parent.left
               anchors.verticalCenter: parent.verticalCenter
             }

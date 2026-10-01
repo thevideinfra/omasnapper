@@ -1,3 +1,5 @@
+<p align="center"><img src="assets/omasnapper.png" alt="omasnapper" width="240"></p>
+
 # omasnapper
 
 A bar widget and panel for [Omarchy 4](https://omarchy.org/) that shows your Btrfs system snapshots, says why each one exists, and lets you take, delete and restore them without a terminal.
