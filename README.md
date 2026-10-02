@@ -27,6 +27,14 @@ There is no cleanup button: snapper's hourly `snapper-cleanup.timer` and Omarchy
 
 Snapshots also appear in the Limine boot menu through `limine-snapper-sync`.
 
+## Screenshots
+
+<p>
+  <img src="assets/panel.png" alt="The panel with a snapshot selected: each Omarchy update snapshot says what that update changed, with Restore, Delete, Pin, Rename, Files and Folder below it, then Snapshot now and the Retention section" width="300">
+  <img src="assets/panel-retention.png" alt="Retention with the keep count lowered to 2: a red banner names the snapshots applying would delete, #9, #8 and #7" width="300">
+  <img src="assets/panel-settings.png" alt="The settings view: density, font size, accent colour swatches from the theme's palette, switches for the retention section and for naming snapshots, where snapshots are stored, and btrfs quotas" width="300">
+</p>
+
 ## Requirements
 
 - Omarchy 4 (Quickshell "quattro" shell)
