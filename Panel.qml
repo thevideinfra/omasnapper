@@ -381,6 +381,7 @@ Panel {
     bar: root.bar
     open: root.opened
     focusTarget: keyCatcher
+    padding: Style.space(8)
     contentWidth: panel.fittedContentWidth(Math.max(root.sp(380), Style.space(260)))
     contentHeight: panel.fittedContentHeight(column.implicitHeight, root.sp(860))
 
