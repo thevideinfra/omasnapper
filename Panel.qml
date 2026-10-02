@@ -34,6 +34,7 @@ Panel {
   readonly property real fontDisplay: Math.round(Style.font.display * fontScale)
   readonly property int refreshSec: Math.max(60, Number(setting("refreshIntervalSec", 300)))
   readonly property bool showRetention: Model.settingBool(setting("showRetention", true), true)
+  readonly property string accentChoice: String(setting("accent", "theme"))
   readonly property bool askName: Model.settingBool(setting("askName", true), true)
   // True while the name field for a new snapshot is up.
   property bool naming: false
@@ -54,7 +55,7 @@ Panel {
   // Text on an accent fill: black or white by the accent's luminance, so it
   // stays readable whatever the theme's accent is.
   readonly property color onAccent: {
-    var c = Color.accent
+    var c = root.accent
     return (0.2126 * c.r + 0.7152 * c.g + 0.0722 * c.b) > 0.5 ? "#101014" : "#ffffff"
   }
   readonly property color urgent: root.bar ? root.bar.urgent : Color.urgent
@@ -337,6 +338,14 @@ Panel {
     onTriggered: root.refresh()
   }
 
+  // The colour the panel highlights with: the theme's accent unless another
+  // colour of the theme's palette is picked in settings.
+  AccentSource {
+    id: accentSource
+    choice: root.accentChoice
+  }
+  readonly property color accent: accentSource.value
+
   // The bar pill: the omasnapper mark, then the snapshot count (or the
   // space snapshots hold, with quotas on). The stock label is hidden and
   // this row drawn in its place, so the mark and the count share one button.
@@ -414,7 +423,7 @@ Panel {
             OmasnapperIcon {
               id: headerIcon
               iconSize: Math.round(root.fontDisplay * 1.5)
-              color: Color.accent
+              color: root.accent
               arrowColor: root.barForeground
               anchors.left: parent.left
               anchors.verticalCenter: parent.verticalCenter
@@ -458,16 +467,16 @@ Panel {
                     width: versionText.implicitWidth + root.sp(10)
                     height: versionText.implicitHeight + root.sp(4)
                     radius: height / 2
-                    color: Util.alpha(Color.accent, 0.15)
+                    color: Util.alpha(root.accent, 0.15)
                     border.width: 1
-                    border.color: Util.alpha(Color.accent, 0.45)
+                    border.color: Util.alpha(root.accent, 0.45)
 
                     Text {
                       id: versionText
                       anchors.centerIn: parent
                       textFormat: Text.PlainText
                       text: "v" + root.version
-                      color: Color.accent
+                      color: root.accent
                       font.family: Style.font.family
                       font.pixelSize: root.fontCaption
                       font.bold: true
@@ -478,7 +487,7 @@ Panel {
                     anchors.verticalCenter: parent.verticalCenter
                     textFormat: Text.PlainText
                     text: ""
-                    color: repoMouse.containsMouse ? Color.accent : root.barForeground
+                    color: repoMouse.containsMouse ? root.accent : root.barForeground
                     opacity: repoMouse.containsMouse ? 1.0 : 0.6
                     font.family: Style.font.family
                     font.pixelSize: root.fontBody
@@ -525,15 +534,15 @@ Panel {
               width: root.sp(28)
               height: root.sp(28)
               radius: root.sp(6)
-              color: gearMouse.containsMouse || root.settingsOpen ? Util.alpha(Color.accent, 0.15) : "transparent"
+              color: gearMouse.containsMouse || root.settingsOpen ? Util.alpha(root.accent, 0.15) : "transparent"
               border.width: root.settingsOpen ? 1 : 0
-              border.color: Util.alpha(Color.accent, 0.45)
+              border.color: Util.alpha(root.accent, 0.45)
 
               Text {
                 anchors.centerIn: parent
                 textFormat: Text.PlainText
                 text: root.settingsOpen ? "󰅖" : "󰒓"
-                color: gearMouse.containsMouse || root.settingsOpen ? Color.accent : root.barForeground
+                color: gearMouse.containsMouse || root.settingsOpen ? root.accent : root.barForeground
                 font.family: Style.font.family
                 font.pixelSize: Math.round(root.fontTitle * 1.2)
               }
@@ -751,7 +760,7 @@ Panel {
           horizontalAlignment: Text.AlignHCenter
           textFormat: Text.PlainText
           text: String(root.keepChoice)
-          color: Color.accent
+          color: root.accent
           opacity: root.autoChoice ? 1.0 : 0.45
           font.family: Style.font.family
           font.pixelSize: root.fontTitle
@@ -886,6 +895,10 @@ Panel {
       onPicked: function(value) { root.setSetting("fontSize", value) }
     }
 
+    SectionLabel { icon: "\uf1fb"; text: "ACCENT" }
+
+    AccentPicker { width: parent.width }
+
     PanelSeparator { foreground: root.barForeground }
     SectionLabel { icon: ""; text: "SHOW" }
 
@@ -933,7 +946,7 @@ Panel {
             width: parent.width
             textFormat: Text.PlainText
             text: locationCard.modelData.path
-            color: Color.accent
+            color: root.accent
             font.family: Style.font.family
             font.pixelSize: root.fontBody
             font.bold: true
@@ -1016,9 +1029,9 @@ Panel {
 
     implicitHeight: rowColumn.implicitHeight + root.sp(14)
     radius: root.sp(7)
-    color: isSelected ? Util.alpha(Color.accent, 0.12) : (rowMouse.containsMouse ? root.tint(0.08) : root.tint(0.05))
+    color: isSelected ? Util.alpha(root.accent, 0.12) : (rowMouse.containsMouse ? root.tint(0.08) : root.tint(0.05))
     border.width: 1
-    border.color: isSelected ? Util.alpha(Color.accent, 0.45) : root.tint(0.1)
+    border.color: isSelected ? Util.alpha(root.accent, 0.45) : root.tint(0.1)
 
     MouseArea {
       id: rowMouse
@@ -1052,13 +1065,13 @@ Panel {
           radius: root.sp(6)
           color: root.tint(0.08)
           border.width: 1
-          border.color: row.isSelected ? Color.accent : root.tint(0.18)
+          border.color: row.isSelected ? root.accent : root.tint(0.18)
 
           Text {
             anchors.centerIn: parent
             textFormat: Text.PlainText
             text: Model.originIcon(row.snap.origin)
-            color: row.isSelected ? Color.accent : root.barForeground
+            color: row.isSelected ? root.accent : root.barForeground
             font.family: Style.font.family
             font.pixelSize: root.fontBody
           }
@@ -1127,7 +1140,7 @@ Panel {
             textFormat: Text.PlainText
             text: (row.snap.pinned ? "󰐃 " : "") + "#" + row.snap.number
               + (row.snap.size !== null && row.snap.size !== undefined ? " · " + Model.fmtBytes(row.snap.size) : "")
-            color: row.snap.pinned ? Color.accent : root.barForeground
+            color: row.snap.pinned ? root.accent : root.barForeground
             opacity: row.snap.pinned ? 0.9 : 0.45
             font.family: Style.font.family
             font.pixelSize: root.fontCaption
@@ -1162,7 +1175,7 @@ Panel {
         wrapMode: Text.WordWrap
         textFormat: Text.PlainText
         text: "Restoring… this can take a minute."
-        color: Color.accent
+        color: root.accent
         font.family: Style.font.family
         font.pixelSize: root.fontSmall
         font.bold: true
@@ -1361,9 +1374,9 @@ Panel {
 
     implicitHeight: bannerColumn.implicitHeight + root.sp(16)
     radius: root.sp(7)
-    color: Util.alpha(danger ? root.urgent : Color.accent, 0.12)
+    color: Util.alpha(danger ? root.urgent : root.accent, 0.12)
     border.width: 1
-    border.color: Util.alpha(danger ? root.urgent : Color.accent, 0.4)
+    border.color: Util.alpha(danger ? root.urgent : root.accent, 0.4)
 
     Column {
       id: bannerColumn
@@ -1386,7 +1399,7 @@ Panel {
     signal clicked()
 
     readonly property bool filled: kind === "primary" || kind === "danger-fill"
-    readonly property color hue: kind === "danger" || kind === "danger-fill" ? root.urgent : Color.accent
+    readonly property color hue: kind === "danger" || kind === "danger-fill" ? root.urgent : root.accent
     readonly property bool hot: btnMouse.containsMouse && active
 
     implicitWidth: btnText.implicitWidth + root.sp(18)
@@ -1394,16 +1407,16 @@ Panel {
     radius: root.sp(6)
     opacity: active ? 1.0 : 0.4
     color: filled ? (hot ? Qt.lighter(hue, 1.1) : hue)
-      : (hot ? Util.alpha(kind === "plain" ? Color.accent : hue, 0.18) : root.tint(0.05))
+      : (hot ? Util.alpha(kind === "plain" ? root.accent : hue, 0.18) : root.tint(0.05))
     border.width: filled ? 0 : 1
-    border.color: hot || kind !== "plain" ? Util.alpha(kind === "plain" ? Color.accent : hue, hot ? 1.0 : 0.6) : root.tint(0.25)
+    border.color: hot || kind !== "plain" ? Util.alpha(kind === "plain" ? root.accent : hue, hot ? 1.0 : 0.6) : root.tint(0.25)
 
     Text {
       id: btnText
       anchors.centerIn: parent
       textFormat: Text.PlainText
       text: btn.text
-      color: btn.filled ? root.onAccent : (btn.kind === "plain" ? (btn.hot ? Color.accent : root.barForeground) : btn.hue)
+      color: btn.filled ? root.onAccent : (btn.kind === "plain" ? (btn.hot ? root.accent : root.barForeground) : btn.hue)
       font.family: Style.font.family
       font.pixelSize: root.fontSmall
       font.bold: btn.filled || btn.kind !== "plain"
@@ -1419,6 +1432,69 @@ Panel {
     }
   }
 
+  // The theme's own accent, then the other colours of its palette, each
+  // drawn in its real colour. The chosen one is ringed.
+  component AccentPicker: Flow {
+    spacing: root.sp(5)
+
+    Repeater {
+      model: accentSource.available
+
+      Rectangle {
+        id: swatch
+        required property string modelData
+        readonly property bool chosen: root.accentChoice === modelData
+        readonly property bool isTheme: modelData === "theme"
+        width: isTheme ? themeLabel.implicitWidth + root.sp(30) : root.sp(23)
+        height: root.sp(23)
+        radius: height / 2
+        color: isTheme ? root.tint(0.06) : accentSource.colorOf(modelData)
+        border.width: chosen ? 2 : 1
+        border.color: chosen ? root.barForeground : root.tint(isTheme ? 0.25 : 0.15)
+
+        // The theme entry is a pill with a dot in the theme's own accent.
+        Rectangle {
+          visible: swatch.isTheme
+          anchors.left: parent.left
+          anchors.leftMargin: root.sp(7)
+          anchors.verticalCenter: parent.verticalCenter
+          width: root.sp(11)
+          height: width
+          radius: width / 2
+          color: Color.accent
+        }
+
+        Text {
+          id: themeLabel
+          visible: swatch.isTheme
+          anchors.right: parent.right
+          anchors.rightMargin: root.sp(8)
+          anchors.verticalCenter: parent.verticalCenter
+          textFormat: Text.PlainText
+          text: "Theme"
+          color: root.barForeground
+          font.family: Style.font.family
+          font.pixelSize: root.fontCaption
+          font.bold: swatch.chosen
+        }
+
+        MouseArea {
+          id: swatchMouse
+          anchors.fill: parent
+          hoverEnabled: true
+          cursorShape: Qt.PointingHandCursor
+          onClicked: root.setSetting("accent", swatch.modelData)
+        }
+
+        PanelToolTip {
+          visible: swatchMouse.containsMouse
+          text: swatch.isTheme ? "Theme accent" : swatch.modelData.charAt(0).toUpperCase() + swatch.modelData.slice(1)
+          fontFamily: Style.font.family
+        }
+      }
+    }
+  }
+
   // Boxed -/+ for the keep count; accent under the pointer, dim at the limit.
   component StepButton: Rectangle {
     id: step
@@ -1430,16 +1506,16 @@ Panel {
     implicitWidth: root.sp(26)
     implicitHeight: root.sp(26)
     radius: root.sp(7)
-    color: stepMouse.containsMouse && step.active ? Util.alpha(Color.accent, 0.2) : root.tint(0.06)
+    color: stepMouse.containsMouse && step.active ? Util.alpha(root.accent, 0.2) : root.tint(0.06)
     border.width: 1
-    border.color: stepMouse.containsMouse && step.active ? Color.accent : root.tint(0.25)
+    border.color: stepMouse.containsMouse && step.active ? root.accent : root.tint(0.25)
     opacity: step.active ? 1.0 : 0.4
 
     Text {
       anchors.centerIn: parent
       textFormat: Text.PlainText
       text: step.iconText
-      color: stepMouse.containsMouse && step.active ? Color.accent : root.barForeground
+      color: stepMouse.containsMouse && step.active ? root.accent : root.barForeground
       font.family: Style.font.family
       font.pixelSize: root.fontSmall
     }
@@ -1480,16 +1556,16 @@ Panel {
         width: segmented.cellWidth
         implicitHeight: choiceText.implicitHeight + root.sp(12)
         radius: root.sp(7)
-        color: chosen ? Util.alpha(Color.accent, 0.12) : (choiceMouse.containsMouse ? root.tint(0.09) : root.tint(0.05))
+        color: chosen ? Util.alpha(root.accent, 0.12) : (choiceMouse.containsMouse ? root.tint(0.09) : root.tint(0.05))
         border.width: chosen ? 2 : 1
-        border.color: chosen ? Color.accent : root.tint(0.12)
+        border.color: chosen ? root.accent : root.tint(0.12)
 
         Text {
           id: choiceText
           anchors.centerIn: parent
           textFormat: Text.PlainText
           text: choice.modelData.label
-          color: choice.chosen ? Color.accent : root.barForeground
+          color: choice.chosen ? root.accent : root.barForeground
           font.family: Style.font.family
           font.pixelSize: root.fontSmall
           font.bold: choice.chosen
@@ -1555,9 +1631,9 @@ Panel {
     Rectangle {
       anchors.fill: parent
       radius: height / 2
-      color: sw.checked ? Util.alpha(Color.accent, 0.3) : Util.alpha(root.barForeground, 0.1)
+      color: sw.checked ? Util.alpha(root.accent, 0.3) : Util.alpha(root.barForeground, 0.1)
       border.width: 1
-      border.color: sw.checked ? Color.accent : Util.alpha(root.barForeground, 0.25)
+      border.color: sw.checked ? root.accent : Util.alpha(root.barForeground, 0.25)
       Behavior on color { ColorAnimation { duration: 120 } }
 
       Rectangle {
@@ -1566,7 +1642,7 @@ Panel {
         radius: width / 2
         anchors.verticalCenter: parent.verticalCenter
         x: sw.checked ? parent.width - width - root.sp(3) : root.sp(3)
-        color: sw.checked ? Color.accent : Qt.darker(root.barForeground, 1.4)
+        color: sw.checked ? root.accent : Qt.darker(root.barForeground, 1.4)
         Behavior on x { NumberAnimation { duration: 120 } }
         Behavior on color { ColorAnimation { duration: 120 } }
       }

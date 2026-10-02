@@ -90,6 +90,46 @@ function fileLine(file) {
   return mark + " " + file.path
 }
 
+// Accent colours the picker can offer, in this order, when the theme defines
+// them.
+var ACCENT_NAMES = ["blue", "cyan", "green", "magenta", "yellow", "red", "orange"]
+
+// name -> "#rrggbb" for every quoted hex colour in a theme's colors.toml.
+function parsePalette(text) {
+  var palette = {}
+  var lines = String(text || "").split("\n")
+  for (var i = 0; i < lines.length; i++) {
+    var m = lines[i].match(/^\s*([a-z_]+)\s*=\s*"(#[0-9a-fA-F]{6})"/)
+    if (m) palette[m[1]] = m[2]
+  }
+  return palette
+}
+
+// "theme" followed by whichever accent colours the palette has.
+function accentChoices(palette) {
+  var list = ["theme"]
+  for (var i = 0; i < ACCENT_NAMES.length; i++)
+    if (palette && palette[ACCENT_NAMES[i]] !== undefined) list.push(ACCENT_NAMES[i])
+  return list
+}
+
+// The palette colour for a choice, or null when the theme's own accent
+// applies ("theme", or a colour this theme does not define).
+function accentColor(choice, palette) {
+  if (choice && choice !== "theme" && palette && palette[choice] !== undefined) return palette[choice]
+  return null
+}
+
+// The "version" field of a manifest.json text; empty if it cannot be read.
+function manifestVersion(text) {
+  try {
+    var v = JSON.parse(String(text)).version
+    return v ? String(v) : ""
+  } catch (e) {
+    return ""
+  }
+}
+
 // Spacing multiplier for the density chosen in settings. Same scales as
 // omaudiopanel, tandem and dotsync, so the panels match side by side.
 function densityScale(name) {
@@ -141,6 +181,10 @@ if (typeof module !== "undefined") {
     wouldDelete: wouldDelete,
     fileLine: fileLine,
     settingBool: settingBool,
+    parsePalette: parsePalette,
+    accentChoices: accentChoices,
+    accentColor: accentColor,
+    manifestVersion: manifestVersion,
     snapshotName: snapshotName,
     originIcon: originIcon,
     densityScale: densityScale,

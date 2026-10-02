@@ -110,3 +110,28 @@ test("densityScale reads roomy, and comfortable from older settings", () => {
   assert.equal(M.densityScale("roomy"), 0.83)
   assert.equal(M.densityScale("comfortable"), 0.83)
 })
+
+test("parsePalette reads quoted six-digit hex colours from colors.toml", () => {
+  const toml = 'accent = "#59C98D"\nred = "#E0607F"\n# comment\nbackground = "#101315"\nbad = "not-a-colour"\nshort = "#abc"\n'
+  assert.deepEqual(M.parsePalette(toml), { accent: "#59C98D", red: "#E0607F", background: "#101315" })
+  assert.deepEqual(M.parsePalette(undefined), {})
+})
+
+test("accentChoices lists theme first, then palette colours in a fixed order", () => {
+  const palette = { green: "#4FA86F", blue: "#6E7FB8", accent: "#59C98D", red: "#E0607F" }
+  assert.deepEqual(M.accentChoices(palette), ["theme", "blue", "green", "red"])
+  assert.deepEqual(M.accentChoices({}), ["theme"])
+})
+
+test("accentColor returns the palette colour, or null for theme and unknown names", () => {
+  const palette = { blue: "#6E7FB8" }
+  assert.equal(M.accentColor("blue", palette), "#6E7FB8")
+  assert.equal(M.accentColor("theme", palette), null)
+  assert.equal(M.accentColor("orange", palette), null)
+  assert.equal(M.accentColor(undefined, palette), null)
+})
+
+test("manifestVersion reads the version, or empty when unreadable", () => {
+  assert.equal(M.manifestVersion('{"version": "0.2.0"}'), "0.2.0")
+  assert.equal(M.manifestVersion("nope"), "")
+})

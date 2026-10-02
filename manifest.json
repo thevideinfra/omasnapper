@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "id": "videinfra.omasnapper",
   "name": "omasnapper",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "author": "thevideinfra",
   "license": "MIT",
   "description": "See, take, delete and restore Btrfs snapshots from the Omarchy bar, with who made each one and why.",
@@ -22,7 +22,8 @@
       "refreshIntervalSec": 300,
       "warnThresholdGB": 5,
       "showRetention": true,
-      "askName": true
+      "askName": true,
+      "accent": "theme"
     },
     "description": "System snapshots: why each was made, one-click snapshot, restore and delete",
     "displayName": "omasnapper",
@@ -50,6 +51,23 @@
         ],
         "defaultValue": "normal",
         "description": "Text size, on top of the density's own scaling."
+      },
+      {
+        "key": "accent",
+        "type": "enum",
+        "label": "Accent colour",
+        "options": [
+          "theme",
+          "blue",
+          "cyan",
+          "green",
+          "magenta",
+          "yellow",
+          "red",
+          "orange"
+        ],
+        "defaultValue": "theme",
+        "description": "The colour the panel highlights with. \"theme\" is the theme's own accent; the others come from the theme's palette."
       },
       {
         "key": "showRetention",
